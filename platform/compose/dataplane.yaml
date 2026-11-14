@@ -1,0 +1,4 @@
+# Non-authoritative empty composition seed; never launch this file directly.
+# Core render owns the complete immutable services, image pins, mounts, project
+# identity and IPv4 network allocation. Editable service inputs merge there.
+services: {}

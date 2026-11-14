@@ -1,0 +1,10 @@
+# Design example, not a configured deployment.
+schemaVersion: 1
+moduleId: dot
+settings:
+  listen:
+    transport: tcp
+    port: 853
+    addressFamilies:
+    - ipv4
+  hostname: dot.example.com

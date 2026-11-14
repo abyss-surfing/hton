@@ -1,0 +1,123 @@
+# Design contract only; copy as config/hton.yaml; module settings examples are under docs/examples/config/modules/.
+# Logging limits are proposed defaults, not owner-selected capacity guarantees.
+schemaVersion: 1
+instance:
+  name: hton
+  # App connection name (normally the country); usernames remain credential ids.
+  # label: "🇷🇺 Россия"
+installation:
+  systemd: true
+  pathShim: false
+logging:
+  level: info
+  directory: /var/logs/hton
+  maxBytes: 67108864
+  retentionDays: 7
+core:
+  edge:
+    listen:
+      transport: tcp
+      port: 4443
+      addressFamilies:
+      - ipv4
+    domains:
+    - vps.example.com
+    hostPolicy:
+      wildcardZone: example.com
+      redirectTarget: https://vps.example.com/
+      unknown: reject
+    # Optional test-only route for the Echo blocking test.
+    # The SSH reverse forward must already listen on this loopback port.
+    # testTunnel:
+    #   sni: probe.example.com
+    #   port: 19090
+  certificates:
+    ca: letsencrypt
+    challenge: dns-01
+    provider: internetbs
+    email: you@example.com
+    wildcardDomain: example.com
+    credentials:
+      apiKey:
+        secretRef: internetbs/api-key
+      apiPassword:
+        secretRef: internetbs/api-password
+  dns:
+    upstreamMode: tls-forward
+    upstreams:
+      primary:
+        addresses:
+        - 1.1.1.1
+        - 1.0.0.1
+        port: 853
+        tlsName: one.one.one.one
+    upstreamOrder:
+    - primary
+    fallback: fail-closed
+  clientAccessPage:
+    # Omit path to publish guest credentials at a generated secret URL on first
+    # install. An explicit path: "" deliberately disables the page.
+    names: {}
+    refreshSeconds: 60
+features:
+  vless:
+    enabled: false
+  naive:
+    enabled: false
+  mtproto:
+    enabled: true
+  hysteria:
+    enabled: true
+  dot:
+    enabled: false
+  foreign-amnezia:
+    enabled: false
+  foreign-outline:
+    enabled: false
+  router-gateway:
+    enabled: false
+  linux-gateway:
+    enabled: false
+  ipv6-he:
+    enabled: false
+  ssh-session:
+    enabled: false
+  site-content:
+    enabled: false
+  doctor-watch:
+    enabled: false
+  telegram:
+    enabled: false
+  outline-wss:
+    enabled: true
+  private-socks:
+    enabled: false
+  https-proxy:
+    enabled: false
+  trojan-ws:
+    enabled: false
+  trojan-tls:
+    enabled: false
+  tuic:
+    enabled: false
+  openvpn:
+    enabled: false
+  sstp:
+    enabled: false
+  softether:
+    enabled: false
+  openconnect:
+    enabled: false
+  tailscale-exit:
+    enabled: false
+  management-api:
+    enabled: false
+  configurator:
+    enabled: false
+  web-admin:
+    enabled: false
+onboarding:
+  defaultConnection: gateway
+  preferredTargets:
+  - other-tv
+  - quest

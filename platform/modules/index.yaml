@@ -1,0 +1,107 @@
+# Trusted built-in inventory. Metadata does not establish runtime qualification.
+schemaVersion: 1
+catalogueVersion: 1
+profileSuggestions:
+  minimal: []
+  home: [vless]
+  compat: [foreign-amnezia]
+  lab: [vless, foreign-amnezia]
+modules:
+  - id: vless
+    phase: r1
+    implemented: true
+    descriptor: vless
+  - id: naive
+    phase: optional
+    implemented: false
+  - id: mtproto
+    phase: optional
+    implemented: false
+  - id: hysteria
+    phase: optional
+    implemented: false
+  - id: dot
+    phase: optional
+    implemented: false
+  - id: foreign-amnezia
+    phase: r1
+    implemented: true
+    descriptor: foreign-amnezia
+  - id: foreign-outline
+    phase: optional
+    implemented: false
+  - id: router-gateway
+    phase: optional
+    implemented: false
+  - id: linux-gateway
+    phase: optional
+    implemented: false
+  - id: ipv6-he
+    phase: farFuture
+    implemented: false
+  - id: ssh-session
+    phase: optional
+    implemented: false
+  - id: site-content
+    phase: optional
+    implemented: false
+  - id: doctor-watch
+    phase: optional
+    implemented: false
+  - id: telegram
+    phase: laterManagement
+    implemented: false
+  - id: outline-wss
+    phase: optional
+    implemented: false
+  - id: amneziawg
+    phase: optional
+    implemented: true
+  - id: private-socks
+    phase: optional
+    implemented: false
+  - id: https-proxy
+    phase: optional
+    implemented: false
+  - id: trojan-ws
+    phase: optional
+    implemented: false
+  - id: trojan-tls
+    phase: optional
+    implemented: false
+  - id: tuic
+    phase: optional
+    implemented: false
+  - id: openvpn
+    phase: optional
+    implemented: false
+  - id: sstp
+    phase: optional
+    implemented: false
+  - id: softether
+    phase: optional
+    implemented: false
+  - id: openconnect
+    phase: optional
+    implemented: false
+  - id: tailscale-exit
+    phase: labPolicyBlocked
+    implemented: false
+  - id: smart-connect
+    phase: r2
+    implemented: false
+  - id: client-ipv6
+    phase: farFuture
+    implemented: false
+  - id: web-publish
+    phase: r2
+    implemented: false
+  - id: management-api
+    phase: laterManagement
+    implemented: false
+  - id: configurator
+    phase: laterManagement
+    implemented: false
+  - id: web-admin
+    phase: laterManagement
+    implemented: false

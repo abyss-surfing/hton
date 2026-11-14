@@ -1,0 +1,1421 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hton.local/schema/module-v1.json",
+  "title": "HTON module settings draft contract",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "moduleId": {
+      "enum": [
+        "vless",
+        "naive",
+        "mtproto",
+        "hysteria",
+        "dot",
+        "foreign-amnezia",
+        "foreign-outline",
+        "router-gateway",
+        "linux-gateway",
+        "ipv6-he",
+        "ssh-session",
+        "site-content",
+        "doctor-watch",
+        "telegram",
+        "outline-wss",
+        "amneziawg",
+        "private-socks",
+        "https-proxy",
+        "trojan-ws",
+        "trojan-tls",
+        "tuic",
+        "openvpn",
+        "sstp",
+        "softether",
+        "openconnect",
+        "tailscale-exit",
+        "smart-connect",
+        "client-ipv6",
+        "web-publish",
+        "management-api",
+        "configurator",
+        "web-admin"
+      ]
+    },
+    "settings": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "moduleId",
+    "settings"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "vless"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "transport": {
+                "enum": [
+                  "ws",
+                  "xhttp"
+                ]
+              },
+              "path": {
+                "type": "object",
+                "properties": {
+                  "secretRef": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)+$"
+                  }
+                },
+                "required": [
+                  "secretRef"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "naive"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "mtproto"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "backend": {
+                "enum": [
+                  "mtg",
+                  "telemt"
+                ]
+              },
+              "camouflageName": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "hysteria"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "listen": {
+                "type": "object",
+                "properties": {
+                  "transport": {
+                    "const": "udp"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "scope": {
+                    "enum": [
+                      "public",
+                      "host-loopback",
+                      "project"
+                    ]
+                  },
+                  "addressFamilies": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "ipv4",
+                        "ipv6"
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "transport",
+                  "port",
+                  "addressFamilies"
+                ],
+                "additionalProperties": false
+              },
+              "hostname": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "dot"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "listen": {
+                "type": "object",
+                "properties": {
+                  "transport": {
+                    "const": "tcp"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "scope": {
+                    "enum": [
+                      "public",
+                      "host-loopback",
+                      "project"
+                    ]
+                  },
+                  "addressFamilies": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "ipv4",
+                        "ipv6"
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "transport",
+                  "port",
+                  "addressFamilies"
+                ],
+                "additionalProperties": false
+              },
+              "hostname": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "foreign-amnezia"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "container": {
+                "type": "string",
+                "minLength": 1
+              },
+              "serverNames": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "hostPorts": {
+                "type": "object",
+                "description": "Desired host-published ports by transport; native in-container ports are observed and preserved.",
+                "properties": {
+                  "tcp": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "udp": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  }
+                },
+                "required": [
+                  "tcp",
+                  "udp"
+                ],
+                "additionalProperties": false
+              },
+              "mode": {
+                "enum": [
+                  "associate",
+                  "provision"
+                ]
+              },
+              "compatibility": {
+                "type": "object",
+                "properties": {
+                  "legacyServerNames": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "uniqueItems": true
+                  }
+                },
+                "additionalProperties": false
+              },
+              "provision": {
+                "type": "object",
+                "properties": {
+                  "clientName": {
+                    "type": "string",
+                    "pattern": "^[0-9A-Za-zА-Яа-яЁё][0-9A-Za-zА-Яа-яЁё_.-]{0,31}$"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "admin": {
+                "type": "object",
+                "properties": {
+                  "access": {
+                    "enum": [
+                      "generate",
+                      "none"
+                    ]
+                  },
+                  "user": {
+                    "type": "string",
+                    "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
+                  },
+                  "sshPort": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  }
+                },
+                "required": [
+                  "access"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "foreign-outline"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "container": {
+                "type": "string",
+                "minLength": 1
+              },
+              "action": {
+                "enum": [
+                  "preserve",
+                  "stop"
+                ]
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "router-gateway"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "linux-gateway"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "ipv6-he"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "serverIPv4": {
+                "type": "string",
+                "minLength": 1
+              },
+              "clientIPv6": {
+                "type": "string",
+                "minLength": 1
+              },
+              "routedPrefix": {
+                "type": "string",
+                "minLength": 1
+              },
+              "credentials": {
+                "type": "object",
+                "properties": {
+                  "secretRef": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)+$"
+                  }
+                },
+                "required": [
+                  "secretRef"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "ssh-session"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "enum": [
+                  "socks",
+                  "tun"
+                ]
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "site-content"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "contentId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "doctor-watch"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "intervalSeconds": {
+                "type": "integer",
+                "minimum": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "telegram"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "botToken": {
+                "type": "object",
+                "properties": {
+                  "secretRef": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)+$"
+                  }
+                },
+                "required": [
+                  "secretRef"
+                ],
+                "additionalProperties": false
+              },
+              "allowedUserIds": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "uniqueItems": true
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "outline-wss"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "serverName": {
+                "type": "string",
+                "minLength": 1
+              },
+              "streamPath": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^/[A-Za-z0-9._~/-]{0,255}$"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "secretRef": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)+$"
+                      }
+                    },
+                    "required": [
+                      "secretRef"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "packetPath": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^/[A-Za-z0-9._~/-]{0,255}$"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "secretRef": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)+$"
+                      }
+                    },
+                    "required": [
+                      "secretRef"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "amneziawg"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "backend": {
+                "const": "amneziawg-go"
+              },
+              "listen": {
+                "type": "object",
+                "properties": {
+                  "transport": {
+                    "const": "udp"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "scope": {
+                    "const": "public"
+                  },
+                  "addressFamilies": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "ipv4",
+                        "ipv6"
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "transport",
+                  "port",
+                  "addressFamilies"
+                ],
+                "additionalProperties": false
+              },
+              "hostname": {
+                "type": "string",
+                "minLength": 1
+              },
+              "subnet": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "private-socks"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "listen": {
+                "type": "object",
+                "properties": {
+                  "transport": {
+                    "const": "tcp"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "scope": {
+                    "const": "host-loopback"
+                  },
+                  "addressFamilies": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "ipv4",
+                        "ipv6"
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "transport",
+                  "port",
+                  "addressFamilies",
+                  "scope"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "https-proxy"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "trojan-ws"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "object",
+                "properties": {
+                  "secretRef": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)+$"
+                  }
+                },
+                "required": [
+                  "secretRef"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "trojan-tls"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "hostname": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "tuic"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "listen": {
+                "type": "object",
+                "properties": {
+                  "transport": {
+                    "const": "udp"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "scope": {
+                    "enum": [
+                      "public",
+                      "host-loopback",
+                      "project"
+                    ]
+                  },
+                  "addressFamilies": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "ipv4",
+                        "ipv6"
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "transport",
+                  "port",
+                  "addressFamilies"
+                ],
+                "additionalProperties": false
+              },
+              "hostname": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "openvpn"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "listen": {
+                "type": "object",
+                "properties": {
+                  "transport": {
+                    "enum": [
+                      "tcp",
+                      "udp"
+                    ]
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "scope": {
+                    "enum": [
+                      "public",
+                      "host-loopback",
+                      "project"
+                    ]
+                  },
+                  "addressFamilies": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "ipv4",
+                        "ipv6"
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "transport",
+                  "port",
+                  "addressFamilies"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "sstp"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "listen": {
+                "type": "object",
+                "properties": {
+                  "transport": {
+                    "const": "tcp"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "scope": {
+                    "enum": [
+                      "public",
+                      "host-loopback",
+                      "project"
+                    ]
+                  },
+                  "addressFamilies": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "ipv4",
+                        "ipv6"
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "transport",
+                  "port",
+                  "addressFamilies"
+                ],
+                "additionalProperties": false
+              },
+              "hostname": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "softether"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "listen": {
+                "type": "object",
+                "properties": {
+                  "transport": {
+                    "const": "tcp"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "scope": {
+                    "enum": [
+                      "public",
+                      "host-loopback",
+                      "project"
+                    ]
+                  },
+                  "addressFamilies": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "ipv4",
+                        "ipv6"
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "transport",
+                  "port",
+                  "addressFamilies"
+                ],
+                "additionalProperties": false
+              },
+              "hostname": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "openconnect"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "listen": {
+                "type": "object",
+                "properties": {
+                  "transport": {
+                    "const": "tcp"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "scope": {
+                    "enum": [
+                      "public",
+                      "host-loopback",
+                      "project"
+                    ]
+                  },
+                  "addressFamilies": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "ipv4",
+                        "ipv6"
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "transport",
+                  "port",
+                  "addressFamilies"
+                ],
+                "additionalProperties": false
+              },
+              "datagramListen": {
+                "type": "object",
+                "properties": {
+                  "transport": {
+                    "enum": [
+                      "tcp",
+                      "udp"
+                    ]
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "scope": {
+                    "enum": [
+                      "public",
+                      "host-loopback",
+                      "project"
+                    ]
+                  },
+                  "addressFamilies": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "ipv4",
+                        "ipv6"
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "transport",
+                  "port",
+                  "addressFamilies"
+                ],
+                "additionalProperties": false
+              },
+              "hostname": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "tailscale-exit"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "smart-connect"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "probeProfile": {
+                "type": "string",
+                "minLength": 1
+              },
+              "mode": {
+                "enum": [
+                  "manual",
+                  "managed"
+                ]
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "client-ipv6"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "enum": [
+                  "proxy-egress",
+                  "device-tun",
+                  "lan-routed"
+                ]
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "web-publish"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "backend": {
+                "enum": [
+                  "rathole",
+                  "frp",
+                  "chisel",
+                  "ssh",
+                  "private-upstream"
+                ]
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "management-api"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "tokenIssuer": {
+                "type": "object",
+                "properties": {
+                  "secretRef": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)+$"
+                  }
+                },
+                "required": [
+                  "secretRef"
+                ],
+                "additionalProperties": false
+              },
+              "maxRequestBytes": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "configurator"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "maxDraftBytes": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "draftTtlSeconds": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "moduleId": {
+            "const": "web-admin"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settings": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "object",
+                "properties": {
+                  "secretRef": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)+$"
+                  }
+                },
+                "required": [
+                  "secretRef"
+                ],
+                "additionalProperties": false
+              },
+              "sessionTtlSeconds": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  ],
+  "$comment": "Planning artifact; syntax only. Module semantic checks and implementation qualification are separate; no claim of product acceptance."
+}

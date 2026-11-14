@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "source": "https://data.iana.org/root-anchors/root-anchors.xml",
+  "publisherGuide": "https://www.iana.org/dnssec/files",
+  "sourceDate": "2026-11-01",
+  "xmlSha256": "3ccaab38830025ee0a0f6c1f25769427544f81ea2865aa860468f3ef5278b908",
+  "rootKeySha256": "2c212250f1ec271109464e0db2f674f2b6b497da6a177d4d1b264fccb0f6d111",
+  "records": [
+    {
+      "keyTag": 20326,
+      "algorithm": 8,
+      "digestType": 2,
+      "digest": "E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D",
+      "validFrom": "2017-02-02T00:00:00+00:00",
+      "validUntil": null
+    },
+    {
+      "keyTag": 38696,
+      "algorithm": 8,
+      "digestType": 2,
+      "digest": "683D2D0ACB8C9B712A1948B27F741219298D0A450D612C483AF444A4C0FB2B16",
+      "validFrom": "2024-07-18T00:00:00+00:00",
+      "validUntil": null
+    }
+  ],
+  "evidence": "HTTPS primary-source retrieval; no HTON/native acceptance executed"
+}

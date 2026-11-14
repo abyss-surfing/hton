@@ -1,0 +1,27 @@
+[Unit]
+Description=HTON bounded client-page snapshot refresh
+Documentation=file:/opt/hton/docs/CLI.md
+After=docker.service
+ConditionPathExists=/opt/hton/config/hton.yaml
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+WorkingDirectory=/opt/hton
+ExecStart=/usr/bin/python3 -E -s -B /opt/hton/python/minimum/install.py client-page-refresh
+TimeoutStartSec=120
+NoNewPrivileges=yes
+ProtectSystem=full
+ReadOnlyPaths=/opt/hton
+ReadWritePaths=/opt/hton/config /opt/hton/work
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+StandardOutput=journal
+StandardError=journal

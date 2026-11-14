@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""Build the pinned managed Amnezia Xray image outside the target VPS.
+
+Every base-image digest and per-architecture Xray archive checksum is supplied
+explicitly. Missing inputs are a precise build blocker: this builder never falls
+back to a floating tag and never invents a digest. It prints a JSON receipt for
+the operator to review; it does not rewrite images.lock.json automatically.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+DOCKERFILE = ROOT / "platform/docker/amnezia-xray.Dockerfile"
+CONTEXT = ROOT / "platform/docker"
+SOURCE_BASELINE = "AmneziaVPN 5.0.3.0 @ de93650a90739b87bb47a632872ea9d0adc9412f"
+XRAY_VERSION = "26.7.28"
+NAMESPACE = "ghcr.io/d6/hton-amnezia-xray"
+
+
+def fail(message: str) -> None:
+    print("ERROR: " + message, file=sys.stderr)
+    raise SystemExit(2)
+
+
+def require(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        fail("missing pinned build input " + name)
+    return value
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Build the pinned managed Amnezia Xray image")
+    parser.add_argument("--check", action="store_true",
+        help="report missing pinned inputs without building")
+    parser.add_argument("--tag", default=None)
+    parser.add_argument("--output", choices=("local", "oci"), default="local")
+    parser.add_argument("--oci", default=None, help="destination tar for --output oci")
+    args = parser.parse_args()
+
+    required = ("AMNEZIA_BASE_IMAGE", "AMNEZIA_BASE_DIGEST",
+        "XRAY_SHA256_AMD64", "XRAY_SHA256_ARM64")
+    missing = [name for name in required if not os.environ.get(name, "").strip()]
+    if args.check:
+        report = {
+            "status": "blocked" if missing else "ready",
+            "sourceBaseline": SOURCE_BASELINE,
+            "xrayVersion": XRAY_VERSION,
+            "namespace": NAMESPACE,
+            "missing": missing,
+            "writes": False,
+        }
+        print(json.dumps(report, indent=2))
+        return 0 if not missing else 3
+    if missing:
+        fail("missing pinned build inputs: " + ", ".join(missing))
+    if shutil.which("docker") is None:
+        fail("docker buildx is unavailable")
+    base_image = require("AMNEZIA_BASE_IMAGE")
+    base_digest = require("AMNEZIA_BASE_DIGEST")
+    if not base_digest.startswith("sha256:"):
+        fail("AMNEZIA_BASE_DIGEST must be a sha256: digest")
+    tag = args.tag or (NAMESPACE + ":v" + XRAY_VERSION)
+    command = ["docker", "buildx", "build",
+        "--file", str(DOCKERFILE),
+        "--platform", "linux/amd64,linux/arm64",
+        "--build-arg", "BASE_IMAGE=" + base_image,
+        "--build-arg", "BASE_IMAGE_DIGEST=" + base_digest,
+        "--build-arg", "XRAY_VERSION=" + XRAY_VERSION,
+        "--build-arg", "XRAY_SHA256_AMD64=" + require("XRAY_SHA256_AMD64"),
+        "--build-arg", "XRAY_SHA256_ARM64=" + require("XRAY_SHA256_ARM64"),
+    ]
+    if args.output == "oci":
+        if not args.oci:
+            fail("--oci destination is required for --output oci")
+        command += ["--output", "type=oci,dest=" + args.oci]
+    else:
+        command += ["--tag", tag, "--load"]
+    command.append(str(CONTEXT))
+    result = subprocess.run(command, timeout=3600)
+    if result.returncode != 0:
+        fail("image build failed")
+    receipt = {
+        "status": "built",
+        "sourceBaseline": SOURCE_BASELINE,
+        "xrayVersion": XRAY_VERSION,
+        "namespace": NAMESPACE,
+        "tag": tag,
+        "output": args.output,
+        "platforms": ["linux/amd64", "linux/arm64"],
+        "note": "Record the observed manifest digest into images.lock.json only after operator review.",
+        "writes": False,
+    }
+    print(json.dumps(receipt, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,45 @@
+# Shared service ownership; concrete images are supplied by the pinned image inventory.
+schemaVersion: 1
+services:
+  - id: runtime
+    dependencies: []
+    mandatoryConsumers: [core]
+    foreign: false
+    imageRequired: false
+    adapter: runtime.supervision
+    changeAction: restart
+  - id: haproxy
+    dependencies: [caddy]
+    mandatoryConsumers: [core]
+    foreign: false
+    imageRequired: true
+    adapter: haproxy.native
+    changeAction: restart
+  - id: caddy
+    dependencies: []
+    mandatoryConsumers: [core]
+    foreign: false
+    imageRequired: true
+    adapter: caddy.native
+    changeAction: reload
+  - id: xray
+    dependencies: [unbound]
+    mandatoryConsumers: []
+    foreign: false
+    imageRequired: true
+    adapter: xray.native
+    changeAction: restart
+  - id: unbound
+    dependencies: []
+    mandatoryConsumers: []
+    foreign: false
+    imageRequired: true
+    adapter: unbound.native
+    changeAction: restart
+  - id: foreign-amnezia
+    dependencies: []
+    mandatoryConsumers: []
+    foreign: true
+    imageRequired: false
+    adapter: amnezia.lifecycle
+    changeAction: restart

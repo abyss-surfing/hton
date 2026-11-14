@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+self="$(readlink -f -- "$0")"
+root="$(dirname -- "$(dirname -- "$self")")"
+. "$root/lib/hton"
+hton_bounded_arguments "$@" || exit 2
+common=()
+command_name=help
+help_requested=false
+while (($#)); do
+  case "$1" in
+    -h|--help) help_requested=true; shift ;;
+    -y|--yes|--dry-run|--json|-q|--quiet) common+=("$1"); shift ;;
+    --) shift; command_name="${1:-help}"; if (($#)); then shift; fi; break ;;
+    -*) hton_usage_error; exit 2 ;;
+    *) command_name="$1"; shift; break ;;
+  esac
+done
+binding="$(hton_command_binding "$command_name")" || { hton_usage_error; exit 2; }
+# Help is resolved before checking helper availability or running a command.
+for argument in "$@"; do
+  case "$argument" in --) break ;; -h|--help) help_requested=true ;; esac
+done
+if [[ "$help_requested" == true ]]; then
+  exec "$root/scripts/help" "$command_name"
+fi
+if [[ "$command_name" == help ]]; then
+  exec "$root/scripts/help" "${common[@]}" "$@"
+fi
+case "$binding" in
+  deferred) printf '%s\n' 'hton: command is deferred beyond R1' >&2; exit 1 ;;
+  unavailable) printf '%s\n' 'hton: R1 command binding is not installed; legacy scaffold is disabled' >&2; exit 3 ;;
+esac
+if [[ ! -f "$root/scripts/$command_name" || ! -x "$root/scripts/$command_name" ]]; then
+  printf '%s\n' 'hton: installed command binding is missing' >&2
+  exit 3
+fi
+exec "$root/scripts/$command_name" "${common[@]}" "$@"

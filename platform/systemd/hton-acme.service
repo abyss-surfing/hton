@@ -1,0 +1,32 @@
+[Unit]
+Description=HTON bounded automatic DNS-01 certificate renewal
+Documentation=file:/opt/hton/docs/CLI.md
+After=network-online.target
+Wants=network-online.target
+ConditionPathIsExecutable=/opt/hton/libexec/hton-core
+ConditionPathExists=/opt/hton/config/hton.yaml
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/hton
+UMask=0077
+RuntimeDirectory=hton
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+ExecStart=/opt/hton/libexec/hton-core certs.renew --config-root /opt/hton/config --work-root /opt/hton/work -- --automatic
+TimeoutStartSec=300
+NoNewPrivileges=yes
+ProtectSystem=full
+ReadOnlyPaths=/opt/hton
+ReadWritePaths=/opt/hton/config /opt/hton/work /run/hton
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+StandardOutput=journal
+StandardError=journal

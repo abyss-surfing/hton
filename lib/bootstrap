@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# Fixed installation mechanics only. No configuration, registry or secrets writers.
+set -euo pipefail
+hton_bootstrap_error() { printf '%s\n' "$1" >&2; return "${2:-1}"; }
+hton_os_release() {
+  local line key value
+  hton_os_id=unknown; hton_os_codename=
+  [[ -r /etc/os-release ]] || return 0
+  while IFS= read -r line; do
+    [[ "$line" == *=* ]] || continue
+    key="${line%%=*}"; value="${line#*=}"
+    if [[ "$value" == \"*\" ]]; then value="${value:1:${#value}-2}"; fi
+    case "$key" in
+      ID) [[ "$value" =~ ^[a-z0-9][a-z0-9_-]*$ ]] && hton_os_id="$value" ;;
+      VERSION_CODENAME) [[ "$value" =~ ^[a-z][a-z0-9_-]*$ ]] && hton_os_codename="$value" ;;
+    esac
+  done < /etc/os-release
+  return 0
+}
+hton_bootstrap_confirm() {
+  local answer
+  [[ "$hton_cli_yes" == false ]] || return 0
+  if hton_no_prompt; then hton_bootstrap_error 'hton: installing system dependencies requires --yes or a TTY prompt' 4; return 4; fi
+  printf '%s' 'Install missing HTON system dependencies? [y/N]: ' >&2
+  IFS= read -r answer || answer=
+  case "$answer" in y|Y|yes|YES) return 0 ;; *) hton_bootstrap_error 'hton: dependency installation declined' 4; return 4 ;; esac
+}
+hton_ensure_python() {
+  [[ -x /usr/bin/python3 ]] && return 0
+  [[ "$hton_cli_dry_run" != true ]] || { hton_bootstrap_error 'hton: Python 3 is required for installation previews' 3; return 3; }
+  ((EUID == 0)) || { hton_bootstrap_error 'hton: installing Python requires root/sudo' 4; return 4; }
+  hton_os_release
+  case "$hton_os_id" in ubuntu|debian) ;; *) hton_bootstrap_guidance; hton_bootstrap_error 'hton: install Python 3 manually on this OS' 3; return 3 ;; esac
+  hton_bootstrap_confirm || return $?
+  [[ -x /usr/bin/apt-get ]] || { hton_bootstrap_error 'hton: apt is missing on a supported OS' 3; return 3; }
+  DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get update || return $?
+  DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get install --yes --no-install-recommends python3 || return $?
+  [[ -x /usr/bin/python3 ]] || { hton_bootstrap_error 'hton: Python 3 is still unavailable after bootstrap' 3; return 3; }
+}
+hton_check_dependencies() {
+  hton_missing_dependencies=()
+  local dependency
+  for dependency in python3 curl openssl age qrencode ss; do command -v "$dependency" >/dev/null 2>&1 || hton_missing_dependencies+=("$dependency"); done
+  /usr/bin/python3 -E -s -B -c 'import yaml, cryptography' >/dev/null 2>&1 || hton_missing_dependencies+=(python3-yaml python3-cryptography)
+  [[ -x /usr/bin/docker ]] || hton_missing_dependencies+=(docker)
+  # Version queries do not connect to a daemon, pull images or start containers.
+  if [[ -x /usr/bin/docker ]]; then
+    /usr/bin/docker --config /nonexistent compose version >/dev/null 2>&1 || hton_missing_dependencies+=(docker-compose-plugin)
+  fi
+  ((${#hton_missing_dependencies[@]} == 0))
+}
+hton_bootstrap_publish() {
+  local temporary="$1" target="$2"
+  if [[ -e "$target" || -L "$target" ]]; then
+    if [[ ! -f "$target" || -L "$target" || "$(stat -c '%u:%h' -- "$target")" != 0:1 ]] || ! cmp -s -- "$temporary" "$target"; then
+      rm -f -- "$temporary"
+      hton_bootstrap_error 'hton: existing bootstrap artifact differs; original retained' 3
+      return 3
+    fi
+    rm -f -- "$temporary"
+  else mv -T -- "$temporary" "$target"; fi
+}
+hton_ensure_packages() {
+  hton_os_release
+  case "$hton_os_id" in ubuntu|debian) ;; *) hton_bootstrap_guidance; hton_bootstrap_error 'hton: automatic installation is not supported on this OS' 3; return 3 ;; esac
+  if hton_check_dependencies; then return 0; fi
+  if [[ "$hton_cli_dry_run" == true ]]; then
+    printf 'hton: unverified; missing dependencies: %s\n' "${hton_missing_dependencies[*]}" >&2
+    return 0
+  fi
+  ((EUID == 0)) || { hton_bootstrap_error 'hton: installing system packages requires root/sudo' 4; return 4; }
+  hton_bootstrap_confirm || return
+  [[ -x /usr/bin/apt-get && -x /usr/bin/dpkg-query && -x /usr/bin/dpkg ]] || { hton_bootstrap_error 'hton: apt/dpkg is missing on a supported OS' 3; return 3; }
+  local need_docker=false pkg architecture sources keyring temp
+  local packages=()
+  for pkg in ca-certificates curl openssl python3 python3-yaml python3-cryptography age qrencode iproute2; do
+    [[ "$(/usr/bin/dpkg-query -W -f='${db:Status-Status}' "$pkg" 2>/dev/null || true)" == installed ]] || packages+=("$pkg")
+  done
+  if [[ ! -x /usr/bin/docker ]]; then
+    need_docker=true
+    for pkg in docker.io docker-compose docker-compose-v2 docker-doc docker-buildx podman-docker containerd runc; do
+      if [[ "$(/usr/bin/dpkg-query -W -f='${db:Status-Status}' "$pkg" 2>/dev/null || true)" == installed ]]; then
+        hton_bootstrap_error 'hton: existing Docker/containerd packages were found; automatic replacement is disabled; resolve compatibility first' 3; return 3
+      fi
+    done
+    if [[ -d /var/lib/docker ]] && [[ -n "$(find /var/lib/docker -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+      hton_bootstrap_error 'hton: existing Docker data requires separate recovery; automatic startup is disabled' 4; return 4
+    fi
+  elif ! /usr/bin/docker --config /nonexistent compose version >/dev/null 2>&1; then
+    hton_bootstrap_error 'hton: existing Docker was preserved; install a compatible Compose plugin separately' 3; return 3
+  fi
+  if ((${#packages[@]})); then
+    DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get update
+    DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get install --yes --no-install-recommends "${packages[@]}"
+  fi
+  if [[ "$need_docker" == true ]]; then
+    [[ -n "$hton_os_codename" ]] || { hton_bootstrap_error 'hton: unknown OS codename; repository was not changed' 3; return 3; }
+    architecture="$(/usr/bin/dpkg --print-architecture)"
+    case "$architecture" in amd64|arm64|armhf|ppc64el|s390x) ;; *) hton_bootstrap_error 'hton: unsupported Docker repository architecture' 3; return 3 ;; esac
+    sources=/etc/apt/sources.list.d/hton-docker.sources; keyring=/etc/apt/keyrings/hton-docker.asc
+    # Refuse duplicate Docker repositories instead of replacing somebody else's setup.
+    if /usr/bin/grep -Rqs --exclude=hton-docker.sources 'download.docker.com' /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null; then
+      hton_bootstrap_error 'hton: Docker repository is already configured; complete a compatible setup manually' 3; return 3
+    fi
+    install -d -m 0755 /etc/apt/keyrings
+    temp="$(mktemp /etc/apt/keyrings/.hton-docker.XXXXXXXX)"
+    if ! /usr/bin/curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 --max-filesize 1048576 "https://download.docker.com/linux/$hton_os_id/gpg" -o "$temp"; then rm -f -- "$temp"; return 1; fi
+    chmod 0644 "$temp"; hton_bootstrap_publish "$temp" "$keyring" || return
+    temp="$(mktemp /etc/apt/sources.list.d/.hton-docker.XXXXXXXX)"
+    printf 'Types: deb\nURIs: https://download.docker.com/linux/%s\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: %s\n' "$hton_os_id" "$hton_os_codename" "$architecture" "$keyring" > "$temp"
+    chmod 0644 "$temp"; hton_bootstrap_publish "$temp" "$sources" || return
+    DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get update
+    DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get install --yes --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  fi
+  hton_check_dependencies || { hton_bootstrap_error 'hton: dependencies are still unavailable; rerun install to continue reconciliation' 3; return 3; }
+}
+hton_bootstrap_guidance() {
+  cat >&2 <<'GUIDANCE'
+Install a compatible Docker Engine and Compose plugin using the official instructions:
+  Ubuntu: https://docs.docker.com/engine/install/ubuntu/
+  Debian: https://docs.docker.com/engine/install/debian/
+  Other operating systems: https://docs.docker.com/engine/install/
+Also required: python3, python3-yaml, python3-cryptography, curl, openssl, age, qrencode, iproute2, and trusted CA certificates.
+HTON does not run remote pipe-to-shell installers or remove conflicting existing
+Docker/containerd packages. Rerun install after completing the manual setup.
+GUIDANCE
+}
+hton_install_bootstrap() {
+  local source_root="$1"
+  if [[ "$hton_cli_dry_run" == true ]]; then hton_ensure_packages; return; fi
+  [[ -d "$source_root" ]] || { hton_bootstrap_error 'hton: source tree is unavailable' 3; return 3; }
+  hton_ensure_packages
+}

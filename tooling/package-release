@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# External, explicit release builder. Never called by installed VPN/CLI startup.
+set -euo pipefail
+umask 077
+self="$(readlink -f -- "$0")"
+source_root="$(dirname -- "$(dirname -- "$self")")"
+if [[ $# != 2 || "$1" != --output || -z "$2" ]]; then
+  printf '%s\n' 'usage: tooling/package-release --output DIRECTORY' >&2
+  exit 2
+fi
+python3 - "$source_root/docs/IMPLEMENTATION-STATUS.md" <<'PY'
+from pathlib import Path
+import sys
+if '<!-- hton-implementation-complete: R1 -->' not in Path(sys.argv[1]).read_text().splitlines():
+    raise SystemExit('R1 implementation plans are incomplete: building is deferred (D81)')
+PY
+cd "$source_root"
+git diff --quiet HEAD -- || { printf '%s\n' 'release requires a clean committed source tree' >&2; exit 1; }
+if [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
+  printf '%s\n' 'release requires all distribution sources committed' >&2
+  exit 1
+fi
+for tool in cargo rustc git python3 tar gzip sha256sum readelf rg install realpath; do
+  command -v "$tool" >/dev/null || { printf '%s\n' 'missing external release build dependency' >&2; exit 3; }
+done
+version=1.99.1
+target=x86_64-unknown-linux-musl
+host="$(rustc +"$version" -vV | sed -n 's/^host: //p')"
+[[ "$host" == x86_64-unknown-linux-gnu ]] || { printf '%s\n' 'release builder requires Linux x86_64 GNU host' >&2; exit 1; }
+linker="$(rustc +"$version" --print sysroot)/lib/rustlib/$host/bin/rust-lld"
+[[ -x "$linker" ]] || { printf '%s\n' 'fixed rust-lld linker unavailable' >&2; exit 3; }
+source_commit="$(git rev-parse HEAD)"
+source_epoch="$(git show -s --format=%ct HEAD)"
+output="$(realpath -m -- "$2")"
+mkdir -p -- "$output"
+[[ -d "$output" && ! -L "$output" ]] || exit 1
+stage="$(mktemp -d /tmp/hton-release.XXXXXXXX)"
+trap 'rm -rf -- "$stage"' EXIT
+archive_name="hton-${source_commit:0:12}-linux-amd64.tar.gz"
+[[ ! -e "$output/$archive_name" && ! -e "$output/$archive_name.sha256" ]] || { printf '%s\n' 'release output already exists' >&2; exit 1; }
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="$linker"
+export CARGO_TARGET_DIR="$stage/target"
+export SOURCE_DATE_EPOCH="$source_epoch"
+cargo +"$version" build --locked --release --target "$target" -p hton-core -p hton-runtime --bins
+mkdir -p "$stage/tree/hton/libexec"
+# Include committed distribution inputs only; no host config/work/logs or credentials.
+git archive HEAD -- bin scripts lib python platform README.md LICENSE docs/CLI.md docs/BUILD-RELEASE.md docs/SECRETS.md |
+  tar -xf - -C "$stage/tree/hton"
+for name in hton-core hton-runtime; do
+  artifact="$stage/target/$target/release/$name"
+  readelf -l "$artifact" > "$stage/elf-headers.txt"
+  if rg -q 'INTERP' "$stage/elf-headers.txt"; then printf '%s\n' 'release helper unexpectedly needs a dynamic loader' >&2; exit 1; fi
+  install -m 0755 "$artifact" "$stage/tree/hton/libexec/$name"
+done
+rustc +"$version" -vV > "$stage/rustc.txt"
+cargo +"$version" -V > "$stage/cargo.txt"
+python3 - "$stage/tree/hton" "$source_commit" "$source_epoch" "$target" "$stage/rustc.txt" "$stage/cargo.txt" <<'PY'
+import hashlib,json,sys
+from pathlib import Path
+root=Path(sys.argv[1])
+manifest={str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(root.rglob('*')) if p.is_file()}
+provenance={'schemaVersion':1,'sourceCommit':sys.argv[2],'sourceEpoch':int(sys.argv[3]),'target':sys.argv[4],
+ 'rustc':Path(sys.argv[5]).read_text(),'cargo':Path(sys.argv[6]).read_text(),
+ 'cargoLockSha256':hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
+ 'externalBuild':True,'productAcceptance':'not-run-by-packaging','filesSha256':manifest}
+(root/'BUILD-PROVENANCE.json').write_text(json.dumps(provenance,sort_keys=True,indent=2)+'\n')
+PY
+# Deterministic metadata/compression for the same compiled input tree; no bit-for-bit claim.
+find "$stage/tree/hton" -type d -exec chmod 0755 {} +
+find "$stage/tree/hton" -type f -exec chmod 0644 {} +
+find "$stage/tree/hton/bin" "$stage/tree/hton/scripts" "$stage/tree/hton/libexec" -type f -exec chmod 0755 {} +
+tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$source_epoch" -C "$stage/tree" -cf - hton |
+  gzip -n > "$stage/$archive_name"
+install -m 0644 "$stage/$archive_name" "$output/$archive_name"
+(cd "$output" && sha256sum "$archive_name" > "$archive_name.sha256")
+printf '%s\n' "$output/$archive_name"

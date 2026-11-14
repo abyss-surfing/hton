@@ -1,0 +1,409 @@
+#!/usr/bin/env python3
+"""Manage native Amnezia VLESS REALITY clients.
+
+  ./scripts/clients list
+  ./scripts/clients add alice bob carol
+  ./scripts/clients rm alice
+  ./scripts/clients refresh [alice ...]
+
+`list` needs Docker access. `add`, `rm` and `refresh` need root. `add` and
+`rm` prompt for a missing client name on a TTY. Names accept Latin and
+Russian Cyrillic letters in either case, digits, underscores, dots and hyphens.
+Connection names use a configured per-client override or the instance label.
+
+`add` and `rm` update the native Xray client list and restart the container.
+`guest` is protected. `refresh` rewrites the private user bundles from the
+current client list without changing UUIDs or restarting Xray.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import stat
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(ROOT / "python" / "minimum"))
+sys.path.insert(0, str(ROOT / "lib"))
+
+import clients as clientops          # noqa: E402
+import configuration                 # noqa: E402
+import docker                        # noqa: E402
+import managed_amnezia               # noqa: E402
+from install_config import deployment_root
+from storage import write_share_file
+
+CONFIG = "/opt/amnezia/xray/server.json"
+
+
+def fail(message: str, code: int = 1):
+    print("ERROR: " + message, file=sys.stderr)
+    raise SystemExit(code)
+
+
+def find_container(explicit: str | None) -> str:
+    if explicit:
+        return docker.exact_id(explicit)
+    listing = docker.command("container", "ls", "--no-trunc", "--format",
+                             "{{.ID}} {{.Command}}", limit=1 << 16,
+                             timeout=120).decode()
+    found = [line.split(" ", 1)[0] for line in listing.splitlines()
+             if CONFIG in line]
+    if not found:
+        fail("native Amnezia container not found; specify --container <id>")
+    if len(found) > 1:
+        fail("multiple native Amnezia containers found; specify --container <id>")
+    return docker.exact_id(found[0])
+
+
+def read_config(container: str) -> bytes:
+    return docker.native_config(container, timeout=120)
+
+
+def write_config(container: str, data: bytes):
+    with tempfile.TemporaryDirectory(prefix="hton-clients-") as directory:
+        path = Path(directory) / "server.json"
+        path.write_bytes(data)
+        # `container cp` preserves this mode inside the container, and the
+        # native xray image runs as uid 65532: 0600 root is unreadable and
+        # crash-loops the container.
+        os.chmod(path, 0o644)
+        docker.command("container", "cp", str(path),
+                       docker.exact_id(container) + ":" + CONFIG, limit=1 << 16,
+                       timeout=120)
+
+
+def restart(container: str):
+    container = docker.exact_id(container)
+    docker.command("container", "restart", container, limit=1 << 16,
+                   timeout=180)
+    for _ in range(60):
+        state = json.loads(docker.command(
+            "container", "inspect", "--format", "{{json .State}}", container,
+            timeout=60))
+        if state.get("Running") and not state.get("Restarting"):
+            time.sleep(1)
+            state = json.loads(docker.command(
+                "container", "inspect", "--format", "{{json .State}}",
+                container, timeout=60))
+            if state.get("Running") and not state.get("Restarting"):
+                return
+        time.sleep(1)
+    fail("native container did not stay running after restart")
+
+
+def share_roots():
+    """Every private share root: the installed copy and the source checkout."""
+    roots = []
+    opt = deployment_root(ROOT) / ".secrets"
+    if opt.is_dir():
+        roots.append(opt)
+    source = ROOT / ".secrets"
+    if source.is_dir() and source.resolve() != opt.resolve():
+        roots.append(source)
+    return roots or [ROOT / ".secrets"]
+
+
+def _share_directory(root: Path) -> Path:
+    """Create the share directory with the private repository's ownership."""
+    directory = root / "share"
+    root.mkdir(mode=0o700, exist_ok=True)
+    if root.is_symlink() or directory.is_symlink():
+        raise clientops.ClientError("private share directory is a symlink")
+    directory.mkdir(mode=0o750, exist_ok=True)
+    info = root.stat()
+    try:
+        os.chown(directory, info.st_uid, info.st_gid)
+    except OSError:
+        pass
+    try:
+        os.chmod(directory, 0o750)
+    except OSError:
+        pass
+    return directory
+
+
+def _write_file(directory: Path, name: str, text: str) -> Path:
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        info = os.fstat(fd)
+        write_share_file(fd, name, text.encode(), info.st_uid, info.st_gid)
+    finally:
+        os.close(fd)
+    return directory / name
+
+
+def _read_share(path: Path) -> str:
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return ""
+    with os.fdopen(fd, encoding="utf-8") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 1024 * 1024:
+            raise clientops.ClientError("private share file is unsafe")
+        return stream.read(1024 * 1024)
+
+
+def _sections(text: str):
+    sections = {}
+    current = None
+    for line in text.splitlines(keepends=True):
+        if line.startswith("## "):
+            current = line[3:].strip()
+            sections[current] = [line]
+        elif current is not None:
+            sections[current].append(line)
+    return sections
+
+
+def _shared_sections():
+    sections = []
+    for title, filename in (("MTProto", "mtproto.txt"), ("Hysteria", "hysteria.txt")):
+        for base in (deployment_root(ROOT) / "work/minimum/share",
+                     ROOT / "work/minimum/share"):
+            try:
+                payload = (base / filename).read_text().strip()
+            except OSError:
+                continue
+            if payload:
+                sections.append((title, payload))
+                break
+    return sections
+
+
+def _page_section(directory: Path) -> str:
+    text = _read_share(directory / "client-page.md")
+    for line in text.splitlines():
+        if line.startswith("https://"):
+            return "## Client access page\n\n" + line.strip() + "\n\n"
+    return ""
+
+
+def _remove_legacy_bundle(directory: Path, name: str):
+    path = directory / ("amnezia-" + clientops.slug(name) + ".md")
+    title, _, _body = _read_share(path).partition("\n")
+    if title == "# Amnezia — " + name:
+        path.unlink(missing_ok=True)
+
+
+def write_bundle(name: str, link: str):
+    """One Markdown bundle per user; refresh owned sections, keep the rest."""
+    filename = clientops.share_name(name)
+    paths = []
+    for root in share_roots():
+        directory = _share_directory(root)
+        existing = _read_share(directory / filename)
+        sections = [("Amnezia REALITY", link), *_shared_sections()]
+        owned = {"Amnezia REALITY", "MTProto", "Hysteria"}
+        preserved = [(title, "".join(body))
+                     for title, body in _sections(existing).items()
+                     if title not in owned]
+        text = "# " + name + "\n\n"
+        text += "## Amnezia REALITY\n\n```\n" + link + "\n```\n\n"
+        for title, body in preserved:
+            text += body.rstrip() + "\n\n"
+        for title, payload in sections[1:]:
+            text += "## " + title + "\n\n```\n" + payload + "\n```\n\n"
+        page = _page_section(directory)
+        if page and all(title != "Client access page" for title, _ in preserved):
+            text += page
+        paths.append(_write_file(directory, filename, text))
+        _remove_legacy_bundle(directory, name)
+    return paths[0]
+
+
+def remove_bundle(name: str):
+    filename = clientops.share_name(name)
+    for root in share_roots():
+        directory = root / "share"
+        try:
+            if root.is_symlink():
+                raise clientops.ClientError("private secrets directory is a symlink")
+            fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        except FileNotFoundError:
+            continue
+        try:
+            os.unlink(filename, dir_fd=fd)
+            os.fsync(fd)
+        except FileNotFoundError:
+            pass
+        finally:
+            os.close(fd)
+        _remove_legacy_bundle(directory, name)
+
+
+def connection_label(client_name: str) -> str:
+    """App connection name: configured instance label, per-client name, or the client."""
+    base = deployment_root(ROOT) / "config"
+    if not (base / "hton.yaml").is_file():
+        base = ROOT / "config"
+    try:
+        root = configuration.load(base).root or {}
+    except (OSError, ValueError):
+        return ""
+    page = (root.get("core") or {}).get("clientAccessPage") or {}
+    names = page.get("names") if isinstance(page, dict) else {}
+    override = names.get(client_name) if isinstance(names, dict) else None
+    if isinstance(override, str) and override:
+        return override
+    return configuration.connection_label(root.get("instance")) or ""
+
+
+def link_for(document, client_name: str, identifier: str) -> str:
+    private, host, short = clientops.reality_fields(document)
+    return managed_amnezia.vless_link(
+        identifier, host, managed_amnezia.connection_fragment(connection_label(client_name)),
+        managed_amnezia._public_key(private), short)
+
+
+def prompt_name(action: str, document) -> str:
+    """Ask for a client name when none was supplied on the command line."""
+    if not sys.stdin.isatty():
+        fail("client name is required: clients " + action + " <name>")
+    known = clientops.names(document)
+    print("Clients: " + (", ".join(known) if known else "none"))
+    while True:
+        try:
+            value = input("Client name: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            fail("cancelled")
+        if not value:
+            continue
+        try:
+            clientops.validate(value)
+        except clientops.ClientError as error:
+            print("ERROR: " + str(error), file=sys.stderr)
+            continue
+        if action == "add" and value in known:
+            print("ERROR: client already exists: " + value, file=sys.stderr)
+            continue
+        if action == "rm" and value not in known:
+            print("ERROR: client not found: " + value, file=sys.stderr)
+            continue
+        return value
+
+
+def confirm(question: str) -> bool:
+    try:
+        answer = input(question).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return answer in ("y", "yes")
+
+
+def command_list(args):
+    document = clientops.document(read_config(find_container(args.container)))
+    entries = clientops.names(document)
+    if args.json:
+        print(json.dumps({"clients": entries}, ensure_ascii=False, indent=2))
+    else:
+        for entry in entries:
+            print(entry)
+
+
+def command_add(args):
+    container = find_container(args.container)
+    document = clientops.document(read_config(container))
+    names = args.names or [prompt_name("add", document)]
+    added = []
+    for name in names:
+        added.append((name, clientops.add(document, name)))
+    write_config(container, clientops.encode(document))
+    restart(container)
+    results = []
+    for name, identifier in added:
+        link = link_for(document, name, identifier)
+        results.append({"client": name, "id": identifier, "link": link,
+                        "share": str(write_bundle(name, link))})
+    if args.json:
+        print(json.dumps({"clients": results}, ensure_ascii=False, indent=2))
+    else:
+        for entry in results:
+            print("added: " + entry["client"])
+            print(entry["link"])
+            print("share: " + entry["share"])
+
+
+def command_remove(args):
+    container = find_container(args.container)
+    document = clientops.document(read_config(container))
+    name = args.name
+    if name is None:
+        name = prompt_name("rm", document)
+        if not confirm("Remove client " + name + "? [y/N]: "):
+            print("No changes made.")
+            return
+    clientops.remove(document, name)
+    write_config(container, clientops.encode(document))
+    restart(container)
+    remove_bundle(name)
+    print("removed: " + name)
+
+
+def command_refresh(args):
+    """Rewrite share bundles from the live config; UUIDs and xray stay untouched."""
+    container = find_container(args.container)
+    document = clientops.document(read_config(container))
+    names = args.names or clientops.names(document)
+    results = []
+    for name in names:
+        identifier = clientops.identifier(document, name)
+        link = link_for(document, name, identifier)
+        results.append({"client": name, "id": identifier, "link": link,
+                        "share": str(write_bundle(name, link))})
+    if args.json:
+        print(json.dumps({"clients": results}, ensure_ascii=False, indent=2))
+    else:
+        for entry in results:
+            print("refreshed: " + entry["client"])
+            print(entry["link"])
+            print("share: " + entry["share"])
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="clients",
+        description="Manage native Amnezia VLESS REALITY clients")
+    parser.add_argument("--container", help="full native container ID")
+    sub = parser.add_subparsers(dest="action", required=True)
+
+    listing = sub.add_parser("list")
+    listing.add_argument("--json", action="store_true")
+    listing.set_defaults(handler=command_list)
+
+    add = sub.add_parser("add")
+    add.add_argument("names", nargs="*", default=None)
+    add.add_argument("--json", action="store_true")
+    add.set_defaults(handler=command_add)
+
+    remove = sub.add_parser("rm")
+    remove.add_argument("name", nargs="?", default=None)
+    remove.set_defaults(handler=command_remove)
+
+    refresh = sub.add_parser("refresh")
+    refresh.add_argument("names", nargs="*", default=None)
+    refresh.add_argument("--json", action="store_true")
+    refresh.set_defaults(handler=command_refresh)
+
+    args = parser.parse_args()
+    if args.action in ("add", "rm", "refresh") and os.geteuid() != 0:
+        fail("root is required: sudo ./scripts/clients " + args.action)
+    try:
+        args.handler(args)
+    except clientops.ClientError as error:
+        fail(str(error))
+    except Exception as error:  # noqa: BLE001 — surface bounded message only
+        fail(str(error))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

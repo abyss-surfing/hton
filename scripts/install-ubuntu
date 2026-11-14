@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+self="$(readlink -f -- "$0")"
+root="$(dirname -- "$(dirname -- "$self")")"
+. "$root/lib/hton"
+. "$root/lib/bootstrap"
+hton_parse_common "$@" || exit 2
+if [[ "$hton_cli_help" == true ]]; then exec "$root/scripts/help" install; fi
+((${#hton_cli_arguments[@]} == 0)) || { hton_usage_error; exit 2; }
+hton_ensure_packages

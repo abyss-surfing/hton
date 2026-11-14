@@ -1,0 +1,31 @@
+[Unit]
+Description=HTON bounded native log collector for %i
+After=docker.service
+ConditionPathIsExecutable=/opt/hton/libexec/hton-runtime
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/hton
+UMask=0077
+ExecStart=/opt/hton/libexec/hton-runtime collect --container %i --state-root /opt/hton/work/runtime --bundle-root /opt/hton/work/bundles --authority-root /opt/hton/work/runtime/authorities
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+KillMode=control-group
+NoNewPrivileges=yes
+ProtectSystem=full
+ReadOnlyPaths=/opt/hton
+ReadWritePaths=/opt/hton/work /run/hton
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+StandardOutput=null
+StandardError=null

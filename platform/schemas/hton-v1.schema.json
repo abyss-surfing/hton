@@ -1,0 +1,703 @@
+{
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "instance": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "installation": {
+      "type": "object",
+      "properties": {
+        "systemd": {
+          "type": "boolean"
+        },
+        "pathShim": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "core": {
+      "type": "object",
+      "properties": {
+        "edge": {
+          "type": "object",
+          "properties": {
+            "listen": {
+              "type": "object",
+              "properties": {
+                "transport": {
+                  "const": "tcp"
+                },
+                "port": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "scope": {
+                  "enum": [
+                    "public",
+                    "host-loopback",
+                    "project"
+                  ]
+                },
+                "addressFamilies": {
+                  "type": "array",
+                  "items": {
+                    "enum": [
+                      "ipv4",
+                      "ipv6"
+                    ]
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "transport",
+                "port",
+                "addressFamilies"
+              ],
+              "additionalProperties": false
+            },
+            "domains": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 0,
+              "uniqueItems": true
+            },
+            "hostPolicy": {
+              "type": "object",
+              "properties": {
+                "wildcardZone": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "redirectTarget": {
+                  "type": "string",
+                  "pattern": "^https://[^/]+/$"
+                },
+                "unknown": {
+                  "const": "reject"
+                }
+              },
+              "required": [
+                "wildcardZone",
+                "redirectTarget",
+                "unknown"
+              ],
+              "additionalProperties": false
+            },
+            "testTunnel": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "sni": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "port": {
+                  "type": "integer",
+                  "minimum": 1024,
+                  "maximum": 65535
+                }
+              },
+              "required": [
+                "sni",
+                "port"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "listen",
+            "domains"
+          ],
+          "additionalProperties": false
+        },
+        "certificates": {
+          "type": "object",
+          "properties": {
+            "ca": {
+              "const": "letsencrypt"
+            },
+            "challenge": {
+              "const": "dns-01"
+            },
+            "provider": {
+              "const": "internetbs"
+            },
+            "email": {
+              "type": "string",
+              "minLength": 1
+            },
+            "wildcardDomain": {
+              "type": "string",
+              "minLength": 1
+            },
+            "credentials": {
+              "type": "object",
+              "properties": {
+                "apiKey": {
+                  "type": "object",
+                  "properties": {
+                    "secretRef": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)+$"
+                    }
+                  },
+                  "required": [
+                    "secretRef"
+                  ],
+                  "additionalProperties": false
+                },
+                "apiPassword": {
+                  "type": "object",
+                  "properties": {
+                    "secretRef": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)+$"
+                    }
+                  },
+                  "required": [
+                    "secretRef"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "apiKey",
+                "apiPassword"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ca",
+            "challenge",
+            "provider",
+            "email",
+            "credentials"
+          ],
+          "additionalProperties": false
+        },
+        "dns": {
+          "type": "object",
+          "properties": {
+            "upstreamMode": {
+              "enum": [
+                "tls-forward",
+                "recursive"
+              ]
+            },
+            "upstreams": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "addresses": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "ipv4"
+                    },
+                    "minItems": 1
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "tlsName": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "addresses",
+                  "port",
+                  "tlsName"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "upstreamOrder": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "fallback": {
+              "const": "fail-closed"
+            }
+          },
+          "required": [
+            "upstreamMode"
+          ],
+          "additionalProperties": false
+        },
+        "clientAccessPage": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "names": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "refreshSeconds": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 3600
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "edge"
+      ],
+      "additionalProperties": false
+    },
+    "features": {
+      "type": "object",
+      "properties": {
+        "vless": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "naive": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "mtproto": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "hysteria": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "dot": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "foreign-amnezia": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "foreign-outline": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "router-gateway": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "linux-gateway": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "ipv6-he": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "ssh-session": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "site-content": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "doctor-watch": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "telegram": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "outline-wss": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "private-socks": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "https-proxy": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "trojan-ws": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "trojan-tls": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "tuic": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "openvpn": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "sstp": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "softether": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "openconnect": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "tailscale-exit": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "management-api": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "configurator": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "web-admin": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "onboarding": {
+      "type": "object",
+      "properties": {
+        "defaultConnection": {
+          "enum": [
+            "gateway",
+            "direct-client"
+          ]
+        },
+        "preferredTargets": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "android-tv",
+              "quest",
+              "apple-tv",
+              "router",
+              "gateway",
+              "other-tv"
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "logging": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+          ]
+        },
+        "directory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retentionDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 7
+        }
+      },
+      "required": [
+        "level"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "instance",
+    "core",
+    "features"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hton.invalid/schemas/hton-v1",
+  "title": "HTON platform configuration tree v1 (design contract)",
+  "$comment": "Planning artifact; syntax only. Module semantic checks and implementation qualification are separate; no claim of product acceptance."
+}

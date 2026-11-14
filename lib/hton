@@ -1,0 +1,838 @@
+#!/usr/bin/env bash
+# Source-only argument/transport helpers. Managed data is never sourced as code.
+set -euo pipefail
+hton_usage_error() { printf '%s\n' 'ERROR: invalid arguments (see hton help COMMAND)' >&2; return 2; }
+hton_bounded_arguments() {
+  local LC_ALL=C argument total=0
+  (($# <= 128)) || { hton_usage_error; return 2; }
+  for argument in "$@"; do
+    ((${#argument} <= 4096)) || { hton_usage_error; return 2; }
+    total=$((total + ${#argument} + 1)); ((total <= 65536)) || { hton_usage_error; return 2; }
+  done
+}
+hton_valid_id() { local LC_ALL=C; [[ -n "${1:-}" && ${#1} -le 128 && "$1" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; }
+hton_command_binding() {
+  case "${1:-}" in
+    help|deploy|usage) printf '%s\n' shell ;;
+    runtime) printf '%s\n' runtime ;;
+    install|setup|config|modules|up|down|validate|diag|keys|share|certs|restart|switch|remap-undo|doctor|uninstall|whoami|feature|update|service) printf '%s\n' core ;;
+    upgrade|tunnel) printf '%s\n' deferred ;;
+    *) return 1 ;;
+  esac
+}
+hton_public_command() { hton_command_binding "${1:-}" >/dev/null; }
+hton_parse_common() {
+  hton_bounded_arguments "$@" || return 2
+  hton_cli_arguments=(); hton_cli_helper_flags=(); hton_cli_help=false; hton_cli_yes=false
+  hton_cli_json=false; hton_cli_quiet=false; hton_cli_dry_run=false
+  local argument literal=false
+  for argument in "$@"; do
+    if [[ "$literal" == true ]]; then hton_cli_arguments+=("$argument"); continue; fi
+    case "$argument" in
+      --) literal=true ;;
+      -h|--help) hton_cli_help=true ;;
+      -y|--yes) hton_cli_yes=true ;;
+      --json) hton_cli_json=true ;;
+      -q|--quiet) hton_cli_quiet=true ;;
+      --dry-run) hton_cli_dry_run=true ;;
+      *) hton_cli_arguments+=("$argument") ;;
+    esac
+  done
+  [[ "$hton_cli_json" == false ]] || hton_cli_helper_flags+=(--json)
+  [[ "$hton_cli_quiet" == false ]] || hton_cli_helper_flags+=(--quiet)
+  [[ "$hton_cli_dry_run" == false ]] || hton_cli_helper_flags+=(--dry-run)
+  return 0
+}
+# Declarative option syntax, no eval/indirection. Names ending * may repeat.
+hton_options() {
+  local values="$1" flags="$2"; shift 2
+  hton_option_argv=(); hton_positionals=()
+  declare -gA hton_option_values=() hton_option_seen=()
+  local argument key value name repeat matched
+  while (($#)); do
+    argument="$1"; shift
+    if [[ "$argument" == --* ]]; then
+      key="${argument%%=*}"; key="${key#--}"; repeat=false; matched=false; name=
+      [[ "$key" =~ ^[a-z][a-z0-9-]*$ ]] || { hton_usage_error; return 2; }
+      for name in $values; do
+        if [[ "$key" == "${name%\*}" ]]; then
+          [[ "$name" != *\* ]] || repeat=true
+          if [[ "$argument" == *=* ]]; then value="${argument#*=}";
+          else (($#)) || { hton_usage_error; return 2; }; value="$1"; shift; [[ "$value" != --* ]] || { hton_usage_error; return 2; }; fi
+          [[ -n "$value" ]] || { hton_usage_error; return 2; }
+          if [[ "$repeat" == false && -n "${hton_option_seen[$key]:-}" ]]; then hton_usage_error; return 2; fi
+          hton_option_seen[$key]=yes; hton_option_values[$key]="$value"
+          hton_option_argv+=("--$key" "$value"); matched=true; break
+        fi
+      done
+      if [[ "$matched" == true ]]; then continue; fi
+      for name in $flags; do
+        if [[ "$argument" == "--$name" ]]; then
+          if [[ -z "${hton_option_seen[$key]:-}" ]]; then hton_option_argv+=("--$key"); fi
+          hton_option_seen[$key]=yes; matched=true; break
+        fi
+      done
+      [[ "$matched" == true ]] || { hton_usage_error; return 2; }
+    elif [[ "$argument" == -* ]]; then hton_usage_error; return 2
+    else hton_positionals+=("$argument"); fi
+  done
+}
+hton_require_ids() { local id; for id in "$@"; do hton_valid_id "$id" || { hton_usage_error; return 2; }; done; }
+hton_count() { ((${#hton_positionals[@]} >= $1 && ${#hton_positionals[@]} <= $2)) || { hton_usage_error; return 2; }; }
+hton_enum() { local candidate="$1" allowed; shift; for allowed in "$@"; do [[ "$candidate" != "$allowed" ]] || return 0; done; hton_usage_error; return 2; }
+hton_uint() { local LC_ALL=C; [[ "$1" =~ ^[0-9]{1,6}$ ]] && ((10#$1 >= $2 && 10#$1 <= $3)) || { hton_usage_error; return 2; }; }
+hton_project_root() {
+  local self
+  self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+  dirname -- "$(dirname -- "$self")"
+}
+invokeHelper() {
+  local operation="${1:-}" helper_root; if (($#)); then shift; fi
+  case "$operation" in
+    config.check|config.plan|config.stage|config.apply|modules.list|modules.add|modules.enable|modules.disable|modules.remove|modules.purge|modules.update|lifecycle.up|lifecycle.down|install.reconcile|install.selection-offer|diag.observe|identity.whoami|keys.manage|share.export|certs.issue|certs.status|certs.list|certs.renew|services.restart|publication.switch|foreign.restore|doctor.observe|doctor.fix|doctor.watch|installation.uninstall|runtime.start|runtime.rollback|bundle.validate) ;;
+    *) hton_usage_error; return 2 ;;
+  esac
+  helper_root="$(hton_project_root)"
+  local minimum_root
+  minimum_root="$(/usr/bin/python3 -E -s -B "$helper_root/lib/install_config.py" root "$helper_root")" || return $?
+  if [[ -f "$minimum_root/work/minimum/owner" ]]; then
+    printf '%s\n' 'ERROR: this installation uses the minimum profile; full-R1 helper operations require an explicit migration' >&2
+    return 3
+  fi
+  [[ -f "$helper_root/libexec/hton-core" && -x "$helper_root/libexec/hton-core" ]] || { printf '%s\n' 'ERROR: installed libexec/hton-core is missing; startup builds are disabled' >&2; return 3; }
+  local state_root="$helper_root" ordinary=()
+  [[ "$hton_cli_yes" == false ]] || ordinary+=(--yes)
+  "$helper_root/libexec/hton-core" "$operation" --config-root "$state_root/config" --work-root "$state_root/work" "${hton_cli_helper_flags[@]}" "${ordinary[@]}" -- "$@"
+}
+hton_install_valid_domain() {
+  local value="${1:-}" label_part
+  local LC_ALL=C
+  ((${#value} > 0 && ${#value} <= 253)) && [[ "$value" == "${value,,}" && "$value" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ && "$value" != *..* ]] || return 1
+  local -a labels=()
+  IFS=. read -r -a labels <<< "$value"
+  for label_part in "${labels[@]}"; do
+    [[ ${#label_part} -le 63 && "$label_part" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || return 1
+  done
+}
+hton_install_valid_email() {
+  local value="${1:-}" local_part domain part
+  local LC_ALL=C
+  ((${#value} <= 254)) && [[ "$value" == *@* && "${value#*@}" != *"@"* ]] || return 1
+  local_part="${value%@*}"
+  domain="${value#*@}"
+  ((${#local_part} > 0 && ${#local_part} <= 64)) && [[ "$local_part" != .* && "$local_part" != *. && "$local_part" != *..* && "$domain" == *.* ]] || return 1
+  local -a local_parts=()
+  IFS=. read -r -a local_parts <<< "$local_part"
+  for part in "${local_parts[@]}"; do
+    [[ "$part" =~ ^[A-Za-z0-9_%+-]+$ ]] || return 1
+  done
+  hton_install_valid_domain "$domain"
+}
+hton_install_prompt_value() {
+  local label="$1" default="$2" validator="$3" attempt value suffix
+  for ((attempt=1; attempt<=3; attempt++)); do
+    suffix=''
+    [[ -z "$default" ]] || suffix=" [$default]"
+    printf '%s%s: ' "$label" "$suffix" >/dev/tty
+    IFS= read -r -t 60 value </dev/tty || value=''
+    [[ -n "$value" ]] || value="$default"
+    case "$validator" in
+      domain)
+        hton_install_valid_domain "$value" && { printf '%s' "$value"; return 0; } ;;
+      email)
+        hton_install_valid_email "$value" && { printf '%s' "$value"; return 0; } ;;
+      port)
+        if [[ "$value" =~ ^[0-9]{1,5}$ ]] && ((10#$value >= 1 && 10#$value <= 65535)); then
+          printf '%s' "$((10#$value))"; return 0
+        fi ;;
+    esac
+    printf '%s\n' 'Invalid value; try again.' >/dev/tty
+  done
+  printf '%s\n' 'ERROR: input was not completed after three attempts' >&2
+  return 2
+}
+hton_install_selection_offer() {
+  local response parsed status=0 profile='' line id attempt answer current_label
+  local -a request=() parsed_lines=() suggested=() saved=() selectable_ids=() selected=() prior_helper_flags=()
+  local -A selectable=() chosen_ids=()
+  hton_install_selection_argv=()
+  hton_install_selection_status=''
+  hton_install_selection_root_state=''
+  [[ -z "${hton_option_seen[profile]:-}" ]] || { profile="${hton_option_values[profile]}"; request+=(--profile "$profile"); }
+  [[ -z "${hton_option_seen[menu]:-}" ]] || request+=(--menu)
+  prior_helper_flags=("${hton_cli_helper_flags[@]}")
+  hton_cli_helper_flags+=(--json)
+  if response="$(invokeHelper install.selection-offer "${request[@]}")"; then status=0; else status=$?; fi
+  hton_cli_helper_flags=("${prior_helper_flags[@]}")
+  ((status == 0)) || { [[ -z "$response" ]] || printf '%s\n' "$response"; return "$status"; }
+  parsed="$(/usr/bin/python3 -E -s -B -c '
+import json, re, sys
+
+def fail():
+    raise SystemExit(2)
+
+doc = json.load(sys.stdin)
+if doc.get("operation") != "install.selection-offer" or doc.get("writes") is not False:
+    fail()
+if doc.get("status") == "recoveryPending":
+    print("recoveryPending")
+    raise SystemExit(0)
+if doc.get("status") != "offer":
+    fail()
+digest = doc.get("offerDigest")
+if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+    fail()
+absent = doc.get("expectedRootAbsent")
+revision = doc.get("rootRevision")
+if not isinstance(absent, bool) or (absent and revision is not None) or (not absent and (not isinstance(revision, str) or not revision)):
+    fail()
+def ids(key):
+    values = doc.get(key)
+    if not isinstance(values, list) or len(values) > 64:
+        fail()
+    result = []
+    for value in values:
+        if isinstance(value, dict):
+            value = value.get("moduleId")
+        if not isinstance(value, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}", value) or value in result:
+            fail()
+        result.append(value)
+    return result
+saved = ids("savedModuleIds")
+suggested = ids("suggestedModuleIds")
+selectable = ids("selectableModules")
+if not set(saved).issubset(selectable) or not set(suggested).issubset(selectable):
+    fail()
+print("absent" if absent else "present")
+print(digest)
+print(",".join(saved))
+print(",".join(suggested))
+for value in selectable:
+    print(value)
+' <<< "$response")" || {
+    printf '%s\n' 'ERROR: Core returned an invalid module selection offer' >&2
+    return 1
+  }
+  if [[ "$parsed" == recoveryPending ]]; then
+    hton_install_selection_status=recoveryPending
+    if [[ "$hton_cli_dry_run" == true ]]; then
+      [[ -z "$response" ]] || printf '%s\n' "$response"
+    fi
+    return 0
+  fi
+  mapfile -t parsed_lines <<< "$parsed"
+  ((${#parsed_lines[@]} >= 4)) || { printf '%s\n' 'ERROR: incomplete module selection offer' >&2; return 1; }
+  [[ "${parsed_lines[0]}" == absent || "${parsed_lines[0]}" == present ]] || return 1
+  hton_install_selection_root_state="${parsed_lines[0]}"
+  hton_install_selection_offer_digest="${parsed_lines[1]}"
+  if [[ -n "${parsed_lines[2]}" ]]; then IFS=, read -r -a saved <<< "${parsed_lines[2]}"; fi
+  if [[ -n "${parsed_lines[3]}" ]]; then IFS=, read -r -a suggested <<< "${parsed_lines[3]}"; fi
+  if ((${#parsed_lines[@]} > 4)); then selectable_ids=("${parsed_lines[@]:4}"); fi
+  for id in "${selectable_ids[@]}"; do selectable["$id"]=1; done
+
+  # Existing desired selection is authoritative. --profile only contributes
+  # suggestions on the first install; only --menu permits editing saved choices.
+  if [[ "${parsed_lines[0]}" == present && -z "${hton_option_seen[menu]:-}" ]]; then
+    selected=("${saved[@]}")
+  else
+    if [[ "${hton_cli_dry_run}" == true || "${hton_cli_json}" == true || ! -r /dev/tty || ! -w /dev/tty ]]; then
+      printf '%s\n' "$response"
+      hton_install_selection_status=selectionRequired
+      return 0
+    fi
+    if [[ "${parsed_lines[0]}" == absent ]]; then selected=("${suggested[@]}"); else selected=("${saved[@]}"); fi
+    printf '%s\n' 'Optional module selection (Core catalogue):' >/dev/tty
+    for id in "${selectable_ids[@]}"; do
+      current_label=' '
+      for line in "${selected[@]}"; do [[ "$line" != "$id" ]] || current_label='x'; done
+      printf ' [%s] %s' "$current_label" "$id" >/dev/tty
+      for line in "${suggested[@]}"; do [[ "$line" != "$id" ]] || { printf ' (profile suggestion)' >/dev/tty; break; }; done
+      printf '\n' >/dev/tty
+    done
+    printf '%s\n' 'Enter comma-separated IDs; Enter keeps the marked selection, - disables all modules.' >/dev/tty
+    for ((attempt=1; attempt<=3; attempt++)); do
+      printf 'Modules: ' >/dev/tty
+      answer=''
+      IFS= read -r -t 60 answer </dev/tty || answer='__eof__'
+      [[ "$answer" != '__eof__' ]] || break
+      if [[ -z "$answer" ]]; then break; fi
+      if [[ "$answer" == '-' ]]; then selected=(); break; fi
+      local -a requested=()
+      IFS=, read -r -a requested <<< "$answer"
+      chosen_ids=()
+      local valid=true
+      ((${#requested[@]} > 0)) || valid=false
+      for id in "${requested[@]}"; do
+        id="${id//[[:space:]]/}"
+        if [[ -z "${selectable[$id]:-}" || -n "${chosen_ids[$id]:-}" ]]; then valid=false; break; fi
+        chosen_ids["$id"]=1
+      done
+      if [[ "$valid" == true && ${#requested[@]} -le 64 ]]; then
+        selected=()
+        for id in "${selectable_ids[@]}"; do [[ -z "${chosen_ids[$id]:-}" ]] || selected+=("$id"); done
+        break
+      fi
+      printf '%s\n' 'Invalid or duplicate ID; choose IDs from the list above.' >/dev/tty
+    done
+    [[ "$answer" == '__eof__' ]] && { printf '%s\n' 'ERROR: module selection was not completed' >&2; return 2; }
+    ((attempt <= 3)) || { printf '%s\n' 'ERROR: module selection was not completed after three attempts' >&2; return 2; }
+  fi
+  hton_install_selection_argv=(--selection-offer-digest "$hton_install_selection_offer_digest")
+  [[ -z "${hton_option_seen[profile]:-}" ]] || hton_install_selection_argv+=(--profile "$profile")
+  for id in "${selected[@]}"; do hton_install_selection_argv+=(--selected-module "$id"); done
+  hton_install_selection_status=ready
+  return 0
+}
+hton_install_preflight_kind() {
+  /usr/bin/python3 -E -s -B -c '
+import json, sys
+
+def fail():
+    raise SystemExit(2)
+
+try:
+    doc = json.load(sys.stdin)
+except Exception:
+    fail()
+if not isinstance(doc, dict) or doc.get("operation") != "install.reconcile" or doc.get("writes") is not False:
+    fail()
+status = doc.get("status")
+if status == "inputRequired":
+    required = doc.get("requiredInputs")
+    if not isinstance(required, list) or not required or len(required) > 3:
+        fail()
+    if any(x not in ("siteDomain", "edgePort", "certificateEmail") for x in required) or len(set(required)) != len(required):
+        fail()
+    suggested = doc.get("suggestedValues", {})
+    if not isinstance(suggested, dict) or any(k not in ("edgePort", "siteDomain") for k in suggested):
+        fail()
+    if "edgePort" in suggested and suggested["edgePort"] != 443:
+        fail()
+    if "siteDomain" in suggested and suggested["siteDomain"] != "example.com":
+        fail()
+    print("inputRequired")
+    for field in required:
+        print(field)
+    if suggested.get("edgePort") == 443:
+        print("suggestedEdgePort:443")
+    if suggested.get("siteDomain") == "example.com":
+        print("suggestedSiteDomain:example.com")
+elif status == "recoveryPending":
+    print("recoveryPending")
+elif status in ("preflight", "ready"):
+    plan = doc.get("installPlan")
+    if not isinstance(plan, dict):
+        fail()
+    if not isinstance(plan.get("conflicts"), list) or not isinstance(plan.get("approvals"), list):
+        fail()
+    reservations = plan.get("hostReservationEvidence")
+    if not isinstance(reservations, dict) or reservations.get("complete") is not True:
+        fail()
+    if not isinstance(reservations.get("reservations"), list):
+        fail()
+    if status == "ready" and (plan["conflicts"] or plan["approvals"]):
+        fail()
+    print(status)
+else:
+    fail()
+' <<<"${1:-}"
+}
+
+hton_install_input_preflight() {
+  local response kind status=0 key value suggested_edge_port='' suggested_site_domain=''
+  local -a classification=()
+  hton_install_input_argv=()
+  hton_install_preflight_status=''
+  if response="$(invokeHelper install.reconcile --input-preflight "${hton_install_selection_argv[@]}")"; then status=0; else status=$?; fi
+  ((status == 0)) || { [[ -z "$response" ]] || printf '%s\n' "$response"; return "$status"; }
+  kind="$(hton_install_preflight_kind "$response")" || { printf '%s\n' "$response"; return 1; }
+  mapfile -t classification <<<"$kind"
+  kind="${classification[0]:-}"
+  for value in "${classification[@]:1}"; do
+    [[ "$value" == suggestedEdgePort:* ]] && suggested_edge_port="${value#suggestedEdgePort:}"
+    [[ "$value" == suggestedSiteDomain:* ]] && suggested_site_domain="${value#suggestedSiteDomain:}"
+  done
+  case "$kind" in
+    recoveryPending)
+      hton_install_preflight_status=recoveryPending
+      return 0
+      ;;
+    ready)
+      hton_install_preflight_status=ready
+      [[ -z "$response" ]] || printf '%s\n' "$response"
+      return 0
+      ;;
+    preflight)
+      hton_install_preflight_status=blocked
+      [[ -z "$response" ]] || printf '%s\n' "$response"
+      [[ "$hton_cli_json" == true ]] || printf '%s\n' 'ERROR: install plan contains blockers; bootstrap stopped until they are resolved' >&2
+      return 1
+      ;;
+    inputRequired) ;;
+    *)
+      printf '%s\n' "$response"
+      return 1
+      ;;
+  esac
+  if [[ ! -r /dev/tty || ! -w /dev/tty || "$hton_cli_json" == true ]]; then
+    printf '%s\n' "$response"
+    hton_install_preflight_status=inputRequired
+    return 0
+  fi
+  # Core names only the missing fields in requiredInputs. Never read config here.
+  for key in "${classification[@]:1}"; do
+    case "$key" in
+      siteDomain) value="$(hton_install_prompt_value 'Site domain' "$suggested_site_domain" domain)" || return; hton_install_input_argv+=(--site-domain "$value") ;;
+      edgePort) value="$(hton_install_prompt_value 'Public TCP port' "$suggested_edge_port" port)" || return; hton_install_input_argv+=(--edge-port "$value") ;;
+      certificateEmail) value="$(hton_install_prompt_value 'Certificate account email' '' email)" || return; hton_install_input_argv+=(--certificate-email "$value") ;;
+    esac
+  done
+  if ((${#hton_install_input_argv[@]} == 0)); then
+    printf '%s\n' "$response"
+    hton_install_preflight_status=inputRequired
+    return 0
+  fi
+  if response="$(invokeHelper install.reconcile --input-preflight "${hton_install_selection_argv[@]}" "${hton_install_input_argv[@]}")"; then status=0; else status=$?; fi
+  ((status == 0)) || { [[ -z "$response" ]] || printf '%s\n' "$response"; return "$status"; }
+  kind="$(hton_install_preflight_kind "$response")" || { printf '%s\n' "$response"; return 1; }
+  mapfile -t classification <<<"$kind"
+  kind="${classification[0]:-}"
+  case "$kind" in
+    recoveryPending)
+      hton_install_preflight_status=recoveryPending
+      return 0
+      ;;
+    ready)
+      hton_install_preflight_status=ready
+      [[ -z "$response" ]] || printf '%s\n' "$response"
+      return 0
+      ;;
+    inputRequired)
+      hton_install_preflight_status=inputRequired
+      [[ -z "$response" ]] || printf '%s\n' "$response"
+      return 0
+      ;;
+    preflight)
+      hton_install_preflight_status=blocked
+      [[ -z "$response" ]] || printf '%s\n' "$response"
+      [[ "$hton_cli_json" == true ]] || printf '%s\n' 'ERROR: install plan contains blockers; bootstrap stopped until they are resolved' >&2
+      return 1
+      ;;
+  esac
+  printf '%s\n' "$response"
+  return 1
+}
+
+hton_install_dns_credentials_required() {
+  /usr/bin/python3 -E -s -B -c '
+import json, sys
+try:
+    doc = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+if not isinstance(doc, dict):
+    raise SystemExit(1)
+if (doc.get("operation") == "install.reconcile"
+    and doc.get("status") == "partial"
+    and doc.get("ready") is False
+    and doc.get("writes") is True
+    and doc.get("requiredNext") == ["importInternetbsDnsCredentials"]):
+    print("dnsCredentials")
+' <<<"${1:-}"
+}
+
+hton_install_prompt_private_file() {
+  local label="$1" attempt value
+  for ((attempt=1; attempt<=3; attempt++)); do
+    printf '%s (absolute path to a private 0600 file): ' "$label" >/dev/tty
+    IFS= read -r -t 60 value </dev/tty || value=''
+    if [[ "$value" == /* && ${#value} -le 4096 && "$value" != *$'\r'* ]]; then
+      printf '%s' "$value"
+      return 0
+    fi
+    printf '%s\n' 'Enter an absolute file path.' >/dev/tty
+  done
+  printf '%s\n' 'ERROR: credential file path input was not completed after three attempts' >&2
+  return 2
+}
+
+hton_install_reconcile() {
+  local response status=0 kind key_file password_file import_response import_status=0
+  if response="$(invokeHelper install.reconcile "$@")"; then status=0; else status=$?; fi
+  if kind="$(hton_install_dns_credentials_required "$response")" && [[ "$kind" == dnsCredentials ]]; then
+    if [[ ! -r /dev/tty || ! -w /dev/tty || "$hton_cli_json" == true ]]; then
+      [[ -z "$response" ]] || printf '%s\n' "$response"
+      return "$status"
+    fi
+    key_file="$(hton_install_prompt_private_file 'InternetBS API key file')" || return
+    password_file="$(hton_install_prompt_private_file 'InternetBS API password file')" || return
+    if import_response="$(invokeHelper keys.manage dns --import-key "$key_file" --import-password "$password_file")"; then import_status=0; else import_status=$?; fi
+    [[ -z "$import_response" ]] || printf '%s\n' "$import_response"
+    ((import_status == 0)) || return "$import_status"
+    if response="$(invokeHelper install.reconcile "$@")"; then status=0; else status=$?; fi
+  fi
+  [[ -z "$response" ]] || printf '%s\n' "$response"
+  return "$status"
+}
+
+invokeRuntime() {
+  local operation="${1:-}" helper_root state_root; if (($#)); then shift; fi
+  [[ "$operation" == status ]] || { hton_usage_error; return 2; }
+  helper_root="$(hton_project_root)"
+  [[ -f "$helper_root/libexec/hton-runtime" && -x "$helper_root/libexec/hton-runtime" ]] || { printf '%s\n' 'ERROR: installed libexec/hton-runtime is missing' >&2; return 3; }
+  state_root="$helper_root"
+  "$helper_root/libexec/hton-runtime" status --state-root "$state_root/work/runtime" "$@"
+}
+hton_source_update() {
+  local root="$1" mode="$2" helper="$1/python/minimum/updates.py"
+  [[ -z "${HTON_SOURCE_UPDATED:-}" ]] || return 0
+  if [[ ! -f "$helper" ]]; then
+    if [[ "$mode" == required ]]; then
+      printf '%s\n' 'ERROR: the update helper is missing from this source tree; no update was applied' >&2
+      return 1
+    fi
+    return 0
+  fi
+  if [[ ! -d "$root/.git" ]]; then
+    [[ "$mode" != required ]] || printf '%s\n' 'WARNING: the source is not a Git checkout; only installed images are refreshed.' >&2
+    return 0
+  fi
+  local -a forward=(fast-forward --root "$root")
+  if [[ "$hton_cli_quiet" == true || "$mode" == required ]]; then forward+=(--quiet); fi
+  if [[ "$mode" == required ]]; then forward+=(--required); fi
+  if /usr/bin/python3 -E -s -B "$helper" "${forward[@]}"; then
+    return 0
+  fi
+  if [[ "$mode" == required ]]; then
+    printf '%s\n' 'ERROR: the source could not be fast-forwarded to origin/main; no update was applied' >&2
+    return 1
+  fi
+  printf '%s\n' 'WARNING: the source update was not possible; installing the current source.' >&2
+  return 0
+}
+
+hton_no_prompt() {
+  [[ "$hton_cli_quiet" == true || "$hton_cli_json" == true || ! -t 0 || ! -t 2 ]]
+}
+
+hton_python_available() { [[ -x /usr/bin/python3 ]]; }
+
+hton_install_elevate() {
+  local root="$1" command_name="$2"
+  shift 2
+  command -v sudo >/dev/null 2>&1 || { printf '%s\n' 'ERROR: installation requires sudo, but sudo was not found' >&2; return 4; }
+  local -a sudo_args=()
+  if hton_no_prompt; then sudo_args+=(-n); fi
+  sudo_args+=(--)
+  [[ -z "${HTON_SOURCE_UPDATED:-}" ]] || sudo_args+=(env HTON_SOURCE_UPDATED=1)
+  sudo_args+=("$root/bin/hton")
+  [[ "$hton_cli_yes" == false ]] || sudo_args+=(--yes)
+  [[ "$hton_cli_json" == false ]] || sudo_args+=(--json)
+  [[ "$hton_cli_quiet" == false ]] || sudo_args+=(--quiet)
+  sudo_args+=("$command_name" "$@")
+  sudo "${sudo_args[@]}"
+}
+
+hton_install_target() {
+  local source="$1" target="$2"
+  shift 2
+  if [[ "$(readlink -f -- "$source")" != "$(readlink -f -- "$target")" ]]; then
+    local -a delivery=(--source-dir "$source")
+    [[ "$hton_cli_json" == false ]] || delivery+=(--json)
+    [[ "$hton_cli_quiet" == false ]] || delivery+=(--quiet)
+    "$source/scripts/deploy" "${delivery[@]}" || return $?
+  fi
+  cd -- "$target" || return $?
+  [[ -x "$target/scripts/setup" ]] || { printf '%s\n' 'ERROR: target scripts/setup is missing; run scripts/install from the source checkout to deploy it' >&2; return 3; }
+  local -a forwarded=("${hton_cli_helper_flags[@]}")
+  [[ "$hton_cli_yes" == false ]] || forwarded+=(--yes)
+  HTON_INSTALL_SOURCE="$source" "$target/scripts/setup" "${forwarded[@]}" "$@"
+}
+
+hton_minimum_setup() {
+  local target="$1"
+  shift
+  # The minimum Core imports PyYAML and cryptography at startup. Bootstrap must
+  # finish before that process starts on a fresh server; previews stay read-only.
+  if [[ "$hton_cli_dry_run" != true ]]; then
+    hton_install_bootstrap "$target" || return $?
+  fi
+  /usr/bin/python3 -E -s -B "$target/python/minimum/install.py" "$@"
+}
+
+hton_cli() {
+  local command_name="$1" root action value id mode; shift
+  root="$(hton_project_root)"; hton_parse_common "$@" || return 2
+  if [[ "$hton_cli_help" == true ]]; then "$root/scripts/help" "$command_name"; return; fi
+  local args=("${hton_cli_arguments[@]}")
+  case "$command_name" in
+    up|down|whoami) hton_options '' '' "${args[@]}"; hton_count 0 0
+      case "$command_name" in up|down) invokeHelper "lifecycle.$command_name" ;; whoami) invokeHelper identity.whoami ;; esac ;;
+    config)
+      ((${#args[@]})) || { hton_usage_error; return 2; }; action="${args[0]}"
+      hton_options 'file plan' '' "${args[@]:1}"; hton_count 0 0
+      case "$action" in
+        check) [[ ${#hton_option_seen[@]} == 0 ]] || { hton_usage_error; return 2; } ;;
+        plan|stage) [[ -z "${hton_option_seen[plan]:-}" ]] || { hton_usage_error; return 2; } ;;
+        apply) [[ -z "${hton_option_seen[file]:-}" ]] || { hton_usage_error; return 2; }
+          [[ -z "${hton_option_seen[plan]:-}" ]] || hton_require_ids "${hton_option_values[plan]}" ;;
+        *) hton_usage_error; return 2 ;;
+      esac
+      invokeHelper "config.$action" "${hton_option_argv[@]}" ;;
+    modules)
+      ((${#args[@]})) || { hton_usage_error; return 2; }; action="${args[0]}"
+      hton_options '' 'save-only' "${args[@]:1}"
+      case "$action" in
+        list) hton_count 0 0; [[ ${#hton_option_seen[@]} == 0 ]] || { hton_usage_error; return 2; } ;;
+        enable|disable) hton_count 1 128 ;;
+        add|remove|purge|update) hton_count 1 1; [[ ${#hton_option_seen[@]} == 0 ]] || { hton_usage_error; return 2; } ;;
+        *) hton_usage_error; return 2 ;;
+      esac
+      hton_require_ids "${hton_positionals[@]}"
+      invokeHelper "modules.$action" "${hton_option_argv[@]}" "${hton_positionals[@]}" ;;
+    runtime)
+      hton_options '' '' "${args[@]}"; hton_count 1 2; action="${hton_positionals[0]}"
+      case "$action" in
+        status) hton_count 1 1; invokeRuntime status "${hton_cli_helper_flags[@]}" ;;
+        start|rollback) if ((${#hton_positionals[@]} == 2)); then hton_require_ids "${hton_positionals[1]}"; invokeHelper "runtime.$action" --bundle "${hton_positionals[1]}"; else invokeHelper "runtime.$action"; fi ;;
+        *) hton_usage_error; return 2 ;;
+      esac ;;
+    install|setup)
+      hton_options 'profile site-domain certificate-email amnezia-container dns-credentials with without mtproto-camouflage outline-binary chain-sni hysteria-port test-sni test-tunnel-port' 'fresh docker-only menu skip-remap skip-start rotate-client-page no-test-tunnel' "${args[@]}"; hton_count 0 0
+      [[ -z "${hton_option_seen[profile]:-}" ]] || hton_enum "${hton_option_values[profile]}" minimal home compat lab
+      local minimum_profile=false
+      if [[ -z "${hton_option_seen[profile]:-}" || "${hton_option_values[profile]}" == minimal ]]; then
+        minimum_profile=true
+        for value in fresh menu skip-remap skip-start; do
+          [[ -z "${hton_option_seen[$value]:-}" ]] || { printf '%s\n' 'ERROR: the minimum profile does not support fresh/menu/skip-remap/skip-start' >&2; return 2; }
+        done
+        [[ -z "${hton_option_seen[hysteria-port]:-}" ]] || hton_uint "${hton_option_values[hysteria-port]}" 1 65535
+        if [[ -n "${hton_option_seen[test-sni]:-}" || -n "${hton_option_seen[test-tunnel-port]:-}" ]]; then
+          [[ -n "${hton_option_seen[test-sni]:-}" && -n "${hton_option_seen[test-tunnel-port]:-}" ]] || { printf '%s\n' 'ERROR: --test-sni and --test-tunnel-port must be given together' >&2; return 2; }
+          hton_uint "${hton_option_values[test-tunnel-port]}" 1024 65535
+        fi
+      else
+        for value in with without mtproto-camouflage outline-binary chain-sni hysteria-port rotate-client-page test-sni test-tunnel-port no-test-tunnel; do
+          [[ -z "${hton_option_seen[$value]:-}" ]] || { printf '%s\n' 'ERROR: protocol selection is implemented by the minimum profile; full-R1 module selection uses --profile/--menu' >&2; return 2; }
+        done
+      fi
+      # JSON target resolution and source delivery themselves need Python.
+      # Resolve this one prerequisite in shell before either Python entrypoint.
+      if ! hton_python_available; then
+        if [[ "$hton_cli_dry_run" == true ]]; then
+          printf '%s\n' 'ERROR: Python 3 is required to preview installation; rerun install without --dry-run to bootstrap it' >&2
+          return 3
+        fi
+        if ((EUID != 0)); then
+          hton_install_elevate "$root" "$command_name" "${args[@]}"
+          return $?
+        fi
+        . "$root/lib/bootstrap"
+        hton_ensure_python || return $?
+      fi
+      local installation_root current_directory
+      installation_root="$(/usr/bin/python3 -E -s -B "$root/lib/install_config.py" root "$root")" || return $?
+      current_directory="$(pwd -P)" || return $?
+      if [[ "$command_name" == install ]]; then
+        local source_dir
+        source_dir="$(readlink -f -- "$root")"
+        if [[ "$source_dir" != "$installation_root" && "$current_directory" != "$source_dir" ]]; then
+          printf 'ERROR: run install from the cloned project root: %s\n' "$source_dir" >&2
+          return 2
+        fi
+      fi
+      if [[ "$minimum_profile" != true && "$installation_root" != /opt/hton ]]; then
+        printf '%s\n' 'ERROR: custom installation directories currently require the minimum profile' >&2; return 2
+      fi
+      if [[ "$command_name" == setup && "$current_directory" != "$installation_root" ]]; then
+        printf 'ERROR: setup must run from the configured target directory: %s\n' "$installation_root" >&2
+        return 2
+      fi
+      if [[ "$command_name" == install && "$current_directory" != "$installation_root" ]]; then
+        [[ -x "$root/scripts/deploy" ]] || { printf '%s\n' 'ERROR: scripts/deploy is missing from the source tree' >&2; return 3; }
+        "$root/scripts/deploy" --source-dir "$root" --dry-run --quiet || return $?
+        if [[ "$hton_cli_dry_run" == true ]]; then
+          local -a deploy_preview=(--source-dir "$root" --dry-run)
+          [[ "$hton_cli_json" == false ]] || deploy_preview+=(--json)
+          [[ "$hton_cli_quiet" == false ]] || deploy_preview+=(--quiet)
+          "$root/scripts/deploy" "${deploy_preview[@]}"
+          return $?
+        fi
+      fi
+      if [[ "$command_name" == install && "$hton_cli_dry_run" != true ]]; then
+        hton_source_update "$root" best-effort || return
+        export HTON_SOURCE_UPDATED=1
+        installation_root="$(/usr/bin/python3 -E -s -B "$root/lib/install_config.py" root "$root")" || return $?
+      fi
+      if ((EUID != 0)) && [[ "$hton_cli_dry_run" != true ]]; then
+        hton_install_elevate "$root" "$command_name" "${args[@]}"
+        return $?
+      fi
+      if [[ "$command_name" == install ]]; then
+        hton_install_target "$root" "$installation_root" "${args[@]}"
+        return $?
+      fi
+      . "$root/lib/bootstrap"
+      if [[ -n "${hton_option_seen[docker-only]:-}" ]]; then
+        hton_install_bootstrap "$root" || return
+        return 0
+      fi
+      if [[ "$minimum_profile" == true ]]; then
+        local -a minimum_args=()
+        for value in site-domain certificate-email amnezia-container dns-credentials with without mtproto-camouflage outline-binary chain-sni hysteria-port test-sni test-tunnel-port; do
+          [[ -z "${hton_option_seen[$value]:-}" ]] || minimum_args+=("--$value" "${hton_option_values[$value]}")
+        done
+        [[ -z "${hton_option_seen[rotate-client-page]:-}" ]] || minimum_args+=(--rotate-client-page)
+        [[ -z "${hton_option_seen[no-test-tunnel]:-}" ]] || minimum_args+=(--no-test-tunnel)
+        [[ "$hton_cli_yes" == false ]] || minimum_args+=(--yes)
+        [[ "$hton_cli_json" == false ]] || minimum_args+=(--json)
+        [[ "$hton_cli_quiet" == false ]] || minimum_args+=(--quiet)
+        [[ "$hton_cli_dry_run" == false ]] || minimum_args+=(--dry-run)
+        hton_minimum_setup "$root" "${minimum_args[@]}"
+        return $?
+      fi
+      if [[ ! -x "$root/libexec/hton-core" ]]; then
+        printf '%s\n' 'ERROR: installed libexec/hton-core is missing; install stopped without bootstrap or compilation' >&2
+        return 3
+      fi
+      hton_install_selection_offer || return
+      if [[ "$hton_install_selection_status" == recoveryPending ]]; then
+        [[ "$hton_cli_dry_run" != true ]] || return 0
+        invokeHelper install.reconcile
+        return $?
+      fi
+      [[ "$hton_install_selection_status" == ready ]] || return 0
+      if [[ "$hton_install_selection_root_state" == present && -z "${hton_option_seen[menu]:-}" ]]; then
+        # A repeat install keeps the saved choice. A profile cannot mutate it;
+        # only --menu sends a selection candidate back to Core.
+        hton_install_selection_argv=()
+      fi
+      if [[ "$hton_cli_dry_run" == true ]]; then
+        hton_install_bootstrap "$root" || return
+        invokeHelper install.reconcile "${hton_install_selection_argv[@]}"
+        return $?
+      fi
+      hton_install_input_preflight || return
+      if [[ "$hton_install_preflight_status" == recoveryPending ]]; then
+        invokeHelper install.reconcile
+        return $?
+      fi
+      [[ "$hton_install_preflight_status" == ready ]] || return 0
+      hton_install_bootstrap "$root" || return
+      hton_install_reconcile "${hton_install_selection_argv[@]}" "${hton_install_input_argv[@]}" ;;
+    certs)
+      action=issue
+      if ((${#args[@]})) && [[ "${args[0]}" != -* ]]; then action="${args[0]}"; args=("${args[@]:1}"); fi
+      case "$action" in
+        issue) hton_options 'domain*' 'force' "${args[@]}" ;;
+        status|list) hton_options '' '' "${args[@]}" ;;
+        *) hton_usage_error; return 2 ;;
+      esac
+      hton_count 0 0; invokeHelper "certs.$action" "${hton_option_argv[@]}" ;;
+    diag)
+      hton_options 'section*' 'verbose' "${args[@]}"; hton_count 0 0
+      for ((id=0; id<${#hton_option_argv[@]}; id++)); do
+        if [[ "${hton_option_argv[id]}" == --section ]]; then id=$((id+1)); hton_enum "${hton_option_argv[id]}" config docker ports services certs journal runtime tunnel admin; fi
+      done
+      invokeHelper diag.observe "${hton_option_argv[@]}" ;;
+    keys)
+      hton_options 'device import-key import-password' 'show force' "${args[@]}"; hton_require_ids "${hton_positionals[@]}"
+      [[ -z "${hton_option_seen[device]:-}" ]] || hton_require_ids "${hton_option_values[device]}"
+      if [[ -n "${hton_option_seen[import-key]:-}" || -n "${hton_option_seen[import-password]:-}" ]]; then
+        [[ ${#hton_positionals[@]} == 1 && "${hton_positionals[0]}" == dns && -n "${hton_option_seen[import-key]:-}" && -n "${hton_option_seen[import-password]:-}" && -z "${hton_option_seen[device]:-}" && -z "${hton_option_seen[show]:-}" ]] || { hton_usage_error; return 2; }
+      fi
+      invokeHelper keys.manage "${hton_option_argv[@]}" "${hton_positionals[@]}" ;;
+    share)
+      hton_options 'kind* target client format out' 'router no-dot extra ssh' "${args[@]}"; hton_count 0 1
+      [[ ${#hton_positionals[@]} == 0 ]] || hton_require_ids "${hton_positionals[0]}"
+      [[ -z "${hton_option_seen[target]:-}" ]] || hton_enum "${hton_option_values[target]}" android-tv quest apple-tv router gateway other-tv
+      [[ -z "${hton_option_seen[client]:-}" ]] || hton_enum "${hton_option_values[client]}" flclash hiddify amnezia sing-box passwall2 native
+      [[ -z "${hton_option_seen[format]:-}" ]] || hton_enum "${hton_option_values[format]}" text json qr
+      [[ -z "${hton_option_seen[router]:-}" || -z "${hton_option_seen[target]:-}" ]] || { hton_usage_error; return 2; }
+      [[ "$hton_cli_json" == false || -z "${hton_option_seen[format]:-}" || "${hton_option_values[format]}" == json ]] || { hton_usage_error; return 2; }
+      invokeHelper share.export "${hton_option_argv[@]}" "${hton_positionals[@]}" ;;
+    restart)
+      hton_options 'wait' '' "${args[@]}"; hton_require_ids "${hton_positionals[@]}"
+      [[ -z "${hton_option_seen[wait]:-}" ]] || hton_uint "${hton_option_values[wait]}" 1 300
+      invokeHelper services.restart "${hton_option_argv[@]}" "${hton_positionals[@]}" ;;
+    switch)
+      hton_options '' 'validate-only' "${args[@]}"; hton_count 0 1
+      [[ ${#hton_positionals[@]} == 0 ]] || hton_uint "${hton_positionals[0]}" 1 65535
+      invokeHelper publication.switch "${hton_option_argv[@]}" "${hton_positionals[@]}" ;;
+    remap-undo)
+      hton_options '' '' "${args[@]}"; hton_count 0 1; hton_require_ids "${hton_positionals[@]}"
+      invokeHelper foreign.restore "${hton_positionals[@]}" ;;
+    doctor)
+      hton_options 'watch' 'fix' "${args[@]}"; hton_count 0 0; action=observe
+      if [[ -n "${hton_option_seen[fix]:-}" ]]; then action=fix; fi
+      if [[ -n "${hton_option_seen[watch]:-}" ]]; then [[ "$action" == observe ]] || { hton_usage_error; return 2; }; action=watch; hton_uint "${hton_option_values[watch]}" 1 1440; fi
+      invokeHelper "doctor.$action" "${hton_option_argv[@]}" ;;
+    uninstall)
+      hton_options '' 'keep-certs keep-env foreign purge' "${args[@]}"; hton_count 0 0
+      invokeHelper installation.uninstall "${hton_option_argv[@]}" ;;
+    validate)
+      hton_options '' '' "${args[@]}"; hton_count 1 1; hton_require_ids "${hton_positionals[0]}"
+      [[ "$hton_cli_dry_run" == false ]] || { hton_usage_error; return 2; }
+      invokeHelper bundle.validate "${hton_positionals[0]}" ;;
+    feature)
+      ((${#args[@]})) || { hton_usage_error; return 2; }; action="${args[0]}"
+      hton_options '' 'plan-only' "${args[@]:1}"
+      case "$action" in list) hton_count 0 0 ;; enable|disable) hton_count 1 128 ;; *) hton_usage_error; return 2 ;; esac
+      hton_require_ids "${hton_positionals[@]}"
+      if [[ -n "${hton_option_seen[plan-only]:-}" ]]; then
+        [[ "$action" != list ]] || { hton_usage_error; return 2; }
+        hton_cli_helper_flags+=(--dry-run); invokeHelper "modules.$action" --save-only "${hton_positionals[@]}"
+      else invokeHelper "modules.$action" "${hton_positionals[@]}"; fi ;;
+    update)
+      hton_options '' 'auto' "${args[@]}"; hton_count 0 0
+      local update_target update_source update_status
+      update_target="$(/usr/bin/python3 -E -s -B "$root/lib/install_config.py" root "$root")" || return $?
+      update_source="$(readlink -f -- "$root")"
+      if [[ -n "${hton_option_seen[auto]:-}" ]]; then
+        update_status=0
+        /usr/bin/python3 -E -s -B "$root/python/minimum/updates.py" due --work-root "$update_target/work/minimum" || update_status=$?
+        case "$update_status" in
+          0) ;;
+          1) [[ "$hton_cli_quiet" == true ]] || printf '%s\n' 'Recent install/update; automatic update is not due.'
+             return 0 ;;
+          *) printf '%s\n' 'ERROR: the update schedule cannot be read safely' >&2; return 1 ;;
+        esac
+      fi
+      if [[ "$hton_cli_dry_run" == true ]]; then
+        if [[ "$hton_cli_json" == true ]]; then
+          printf '%s\n' '{"status":"planned","ready":true,"writes":false,"scope":"hton-owned","order":["git.fetch.origin-main","install.reconcile","docker.update"]}'
+        else
+          printf '%s\n' 'Update plan: fast-forward origin/main, then reinstall the HTON-owned composition.' 'Scope: HTON-owned containers only; independent/foreign containers are not touched.'
+        fi
+        return 0
+      fi
+      [[ -f "$update_target/work/minimum/owner" ]] || {
+        printf 'ERROR: no installed minimum profile at %s; run scripts/install first\n' "$update_target" >&2
+        return 3
+      }
+      hton_source_update "$root" required || return
+      export HTON_SOURCE_UPDATED=1
+      local -a update_argv=()
+      [[ "$hton_cli_quiet" == false ]] || update_argv+=(--quiet)
+      [[ "$hton_cli_json" == false ]] || update_argv+=(--json)
+      [[ -z "${hton_option_seen[auto]:-}" ]] || update_argv+=(--auto)
+      if [[ "$update_source" != "$(readlink -f -- "$update_target")" ]]; then
+        local -a delivery=(--source-dir "$root")
+        if hton_no_prompt || [[ -n "${hton_option_seen[auto]:-}" ]]; then delivery+=(--quiet); fi
+        [[ "$hton_cli_json" == false ]] || delivery+=(--json)
+        "$root/scripts/deploy" "${delivery[@]}" || return $?
+      fi
+      if ((EUID != 0)); then
+        command -v sudo >/dev/null 2>&1 || { printf '%s\n' 'ERROR: update requires sudo, but sudo was not found' >&2; return 4; }
+        local -a sudo_args=()
+        if hton_no_prompt || [[ -n "${hton_option_seen[auto]:-}" ]]; then sudo_args+=(-n); fi
+        sudo "${sudo_args[@]}" -- env HTON_SOURCE_UPDATED=1 HTON_INSTALL_SOURCE="$update_source" /usr/bin/python3 -E -s -B "$update_target/python/minimum/install.py" update "${update_argv[@]}"
+      else
+        env HTON_SOURCE_UPDATED=1 HTON_INSTALL_SOURCE="$update_source" /usr/bin/python3 -E -s -B "$update_target/python/minimum/install.py" update "${update_argv[@]}"
+      fi ;;
+    service)
+      hton_options '' '' "${args[@]}"; hton_count 1 1
+      case "${hton_positionals[0]}" in start) invokeHelper lifecycle.up ;; stop) invokeHelper lifecycle.down ;; restart) invokeHelper services.restart ;; status) invokeRuntime status "${hton_cli_helper_flags[@]}" ;; *) hton_usage_error; return 2 ;; esac ;;
+    *) hton_usage_error; return 2 ;;
+  esac
+}

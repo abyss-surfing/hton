@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "installation": {
+    "directory": "/opt/hton"
+  }
+}

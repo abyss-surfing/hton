@@ -1,0 +1,12 @@
+# Design example, not a configured deployment. Public UDP/443 has one owner only;
+# the native renderer selects standard HTTP3/file masquerade with no obfs password.
+schemaVersion: 1
+moduleId: hysteria
+settings:
+  hostname: example.com
+  listen:
+    transport: udp
+    port: 443
+    scope: public
+    addressFamilies:
+    - ipv4

@@ -1,0 +1,8 @@
+# Design example, not a configured deployment. Ordinary configured paths are
+# not passwords; each Outline user's cryptographic key remains independent.
+schemaVersion: 1
+moduleId: outline-wss
+settings:
+  serverName: assets.example.com
+  streamPath: /assets/stream
+  packetPath: /assets/session

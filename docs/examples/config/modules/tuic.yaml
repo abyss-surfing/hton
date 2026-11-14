@@ -1,0 +1,10 @@
+# Illustrative persisted allocation only; install allocates a unique in-range port.
+schemaVersion: 1
+moduleId: tuic
+settings:
+  listen:
+    transport: udp
+    port: 5687
+    addressFamilies:
+    - ipv4
+  hostname: tuic.example.com

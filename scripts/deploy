@@ -1,0 +1,633 @@
+#!/usr/bin/env python3
+"""Copy the minimum HTON runtime closure into its configured /opt directory without building it."""
+from __future__ import annotations
+
+from contextlib import contextmanager
+import argparse
+import fcntl
+import grp
+import hashlib
+import os
+import pwd
+import shutil
+import stat
+import subprocess
+import sys
+import time
+from pathlib import Path, PurePosixPath
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
+from install_config import ConfigError, deployment_root
+
+ROOT = Path('/opt/hton')
+MANAGED = ROOT / '.hton-source-deploy-managed'
+LEGACY_MANAGED = ROOT / '.hton-deploy-managed'
+MAX_FILES = 20000
+MAX_BYTES = 2 * 1024 * 1024 * 1024
+# Deploy always delivers the Python minimum installer, its shell entrypoints and
+# the pinned image inventory. Rust/full-R1 sources, module descriptors, schemas,
+# build scripts and reference docs are not read at runtime.
+DIRECTORIES = ('bin', 'python/minimum', 'lib', 'scripts', 'services')
+FILES = ('platform/etc/install.json', 'platform/images.lock.json', 'README.md', 'LICENSE',
+    '.secrets.example/profile.yml', '.secrets.example/images.lock.json')
+DOC_FILES = ('docs/CLI.md', 'docs/MINIMUM-INSTALL.md', 'docs/SECRETS.md')
+EXCLUDED = {
+    'scripts/install-ubuntu', 'scripts/install-unknown',
+}
+# Names that older full deliveries may have left in /opt/hton. They are pruned
+# when absent from the current minimum closure, except independent helpers and
+# mutable state.
+LEGACY_TOP = {
+    'adapters', 'compose', 'contracts', 'docker', 'fs-support', 'host-support',
+    'logging', 'modules', 'runtime', 'runtime-contract', 'schemas', 'systemd',
+    'validation', 'web', 'core', 'etc', 'images.lock.json', 'libexec', 'cmd',
+    'Cargo.toml', 'Cargo.lock', 'hton.example.yaml',
+}
+MANAGED_TOP = {PurePosixPath(name).parts[0] for name in (*DIRECTORIES, *FILES, *DOC_FILES)} | LEGACY_TOP
+PRESERVED_TOP = {'config', 'work', 'host-access', '.secrets', 'libexec', 'deployments'}
+EXCLUDED_FILES = {'platform/etc/unbound/root.key'}
+PRIVATE_NAMES = {'.git', '.secrets', '.deploy'}
+REQUIRED = ('bin/hton', 'scripts/install', 'scripts/setup', 'scripts/deploy', 'scripts/secrets', 'scripts/update', 'lib/hton', 'lib/bootstrap', 'lib/install_config.py', 'lib/secrets_store.py', 'platform/etc/install.json', 'services/onomat/runtime/dns/python/dns.py', *('python/minimum/' + name + '.py' for name in ('storage', 'docker', 'certificates', 'ingress', 'protocols', 'publication', 'http_challenge', 'migrations', 'configuration', 'managed_amnezia', 'host_access', 'access_links', 'client_page', 'install', 'clients', 'updates')))
+REQUIRED_EXECUTABLES = {'bin/hton', 'scripts/install', 'scripts/setup', 'scripts/deploy',
+    'scripts/secrets', 'scripts/clients', 'scripts/update', 'scripts/usage'}
+
+
+class DeployError(Exception):
+    pass
+
+
+def fail(message: str) -> None:
+    raise DeployError(message)
+
+
+def source_default() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def canonical_source(raw: str) -> Path:
+    supplied = Path(raw)
+    if not supplied.is_absolute():
+        fail('--source-dir must be an absolute path')
+    root = supplied.resolve(strict=True)
+    if not root.is_dir() or supplied.is_symlink() or Path(os.path.abspath(raw)) != root:
+        fail('source must be a regular directory at its canonical path, without symlinks')
+    return root
+
+
+def open_source_file(root: Path, relative: str) -> int:
+    parts = PurePosixPath(relative).parts
+    if not parts or any(part in {'', '.', '..'} for part in parts):
+        fail(f'unsafe source path: {relative}')
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    current = os.open(root, directory_flags)
+    try:
+        for part in parts[:-1]:
+            child = os.open(part, directory_flags, dir_fd=current)
+            os.close(current)
+            current = child
+        descriptor = os.open(
+            parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+            dir_fd=current,
+        )
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            os.close(descriptor)
+            fail(f'source file must be regular with one hard link: {relative}')
+        return descriptor
+    finally:
+        os.close(current)
+
+
+def hash_source_file(root: Path, relative: str) -> tuple[str, int]:
+    descriptor = open_source_file(root, relative)
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        while True:
+            block = os.read(descriptor, 1024 * 1024)
+            if not block:
+                break
+            size += len(block)
+            if size > MAX_BYTES:
+                fail(f'source file exceeds the size limit: {relative}')
+            digest.update(block)
+    finally:
+        os.close(descriptor)
+    return digest.hexdigest(), size
+
+
+def private_name(name: str) -> bool:
+    return name in PRIVATE_NAMES or name == '.env' or name.startswith('.env.')
+
+
+def source_files(root: Path) -> tuple[list[tuple[str, Path, str, int, bool]], str]:
+    directories, files, docs, excluded = DIRECTORIES, FILES, DOC_FILES, EXCLUDED
+    found: list[tuple[str, Path, str, int, bool]] = []
+    total = 0
+    for name in directories:
+        base = root / name
+        if not base.exists():
+            continue
+        if base.is_symlink() or not base.is_dir():
+            fail(f'product path is not a regular directory: {name}')
+        for current, dirs, filenames in os.walk(base, followlinks=False):
+            current_path = Path(current)
+            dirs[:] = [name for name in dirs if not private_name(name)
+                and name not in {'__pycache__', '.pytest_cache', 'node_modules', 'secrets', 'target'}]
+            for child_name in list(dirs):
+                child = current_path / child_name
+                if child.is_symlink():
+                    fail(f'symlink in source tree: {child.relative_to(root)}')
+            for child_name in filenames:
+                if private_name(child_name) or child_name.endswith(('.pyc', '.pyo', '.pem', '.key', '.p12', '.pfx')):
+                    continue
+                child = current_path / child_name
+                relative = child.relative_to(root).as_posix()
+                if relative in EXCLUDED_FILES or relative in excluded:
+                    continue
+                info = child.lstat()
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    fail(f'source file must be regular with one hard link: {relative}')
+                total += info.st_size
+                if total > MAX_BYTES:
+                    fail('source tree exceeds the total size limit')
+                digest, actual_size = hash_source_file(root, relative)
+                if actual_size != info.st_size:
+                    fail(f'source changed during inventory: {relative}')
+                executable = bool(info.st_mode & 0o111)
+                found.append((relative, child, digest, actual_size, executable))
+                if len(found) > MAX_FILES:
+                    fail('source tree exceeds the file count limit')
+    for name in files + docs:
+        source = root / name
+        if not source.exists():
+            continue
+        info = source.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            fail(f'product file must be regular with one hard link: {name}')
+        total += info.st_size
+        if total > MAX_BYTES:
+            fail('source tree exceeds the total size limit')
+        digest, actual_size = hash_source_file(root, name)
+        if actual_size != info.st_size:
+            fail(f'product file changed during inventory: {name}')
+        found.append((name, source, digest, actual_size, bool(info.st_mode & 0o111)))
+        if len(found) > MAX_FILES:
+            fail('source tree exceeds the file count limit')
+    found.sort(key=lambda entry: entry[0])
+    names = {entry[0] for entry in found}
+    for required in REQUIRED:
+        if required not in names:
+            fail(f'required product file is missing: {required}')
+    for name, _source, _digest, _size, executable in found:
+        if name in REQUIRED_EXECUTABLES and not executable:
+            fail(f'required command is not executable in the source tree: {name}')
+    if 'docs/tasks' in names or any(name.startswith('docs/tasks/') for name in names):
+        fail(f'docs/tasks must not be copied to {ROOT}')
+    tree_hash = hashlib.sha256()
+    for relative, _source, digest, _size, executable in found:
+        tree_hash.update(relative.encode('utf-8'))
+        tree_hash.update(b'\0')
+        tree_hash.update(digest.encode('ascii'))
+        tree_hash.update(b'\0x' if executable else b'\0-')
+        tree_hash.update(b'\n')
+    return found, tree_hash.hexdigest()
+
+
+def safe_target(code_names: set[str]) -> None:
+    opt = Path('/opt')
+    if not opt.is_dir() or opt.is_symlink():
+        fail('/opt must be a regular directory')
+    info = opt.stat()
+    if info.st_uid != 0 or info.st_mode & 0o022:
+        fail('/opt must be owned by root and not writable by group or others')
+    if ROOT.is_symlink():
+        fail(f'{ROOT} must not be a symlink')
+    if not ROOT.exists():
+        return
+    if not ROOT.is_dir():
+        fail(f'{ROOT} already exists and is not a directory')
+    entries = [item for item in ROOT.iterdir() if item.name != '.deploy.lock']
+    markers = (MANAGED, LEGACY_MANAGED)
+    marker = next((item for item in markers if item.exists()), None)
+    if entries and marker is None:
+        fail(f'refusing to overwrite non-empty {ROOT} without an HTON deployment marker')
+    if marker is not None:
+        expected = b'managed-by-cmd-deploy-source-v1\n' if marker == MANAGED else b'managed-by-cmd-deploy-v1\n'
+        if marker.is_symlink() or marker.stat().st_uid != 0 or marker.read_bytes() != expected:
+            fail('HTON deployment marker is unsafe')
+    # Legacy snapshot symlinks are removed during deploy; a managed code path
+    # may only otherwise be a regular directory or file, never a symlink.
+    for name in sorted(code_names):
+        path = ROOT / name
+        if path.is_symlink():
+            continue
+        if path.exists() and not (path.is_dir() or path.is_file()):
+            fail(f'unexpected object in managed path: {path}')
+
+
+def configure_group() -> int:
+    try:
+        group = grp.getgrnam('hton')
+    except KeyError:
+        subprocess.run(['/usr/sbin/groupadd', '--system', 'hton'], check=True, stdin=subprocess.DEVNULL)
+        group = grp.getgrnam('hton')
+    username = os.environ.get('SUDO_USER', '')
+    if username and username != 'root':
+        try:
+            user = pwd.getpwnam(username)
+        except KeyError:
+            fail('SUDO_USER does not match a local user')
+        member = group.gr_gid in set(os.getgrouplist(username, user.pw_gid))
+        if not member:
+            subprocess.run(['/usr/sbin/usermod', '-a', '-G', 'hton', '--', username], check=True, stdin=subprocess.DEVNULL)
+        # Group membership only takes effect in a new session. Tell the operator
+        # how to activate it in the terminal that ran scripts/install.
+        print(f"NOTE: {username} {'is in' if member else 'was added to'} the 'hton' group, which "
+              f"grants read access to {ROOT}. If this terminal cannot access it, run "
+              f"'newgrp hton' or log out and back in.", file=sys.stderr)
+    return group.gr_gid
+
+
+@contextmanager
+def deployment_lock():
+    lock_path = ROOT / '.deploy.lock'
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_uid != 0
+            or stat.S_IMODE(info.st_mode) != 0o600
+        ):
+            fail('deployment lock is unsafe')
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    fail('another deployment is still running')
+                time.sleep(0.05)
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def ensure_directory(path: Path, group_id: int) -> None:
+    if path == ROOT:
+        return
+    if path.is_symlink() or (path.exists() and not path.is_dir()):
+        fail(f'managed path is occupied by an unsafe object: {path}')
+    path.mkdir(parents=True, exist_ok=True)
+    if path.resolve() != path:
+        fail(f'managed path traverses a symlink: {path}')
+    info = path.lstat()
+    if info.st_uid != 0 or info.st_gid != group_id:
+        os.chown(path, 0, group_id, follow_symlinks=False)
+    if stat.S_IMODE(info.st_mode) != 0o750:
+        os.chmod(path, 0o750, follow_symlinks=False)
+        sync_directory(path.parent)
+
+
+def install_source_file(source_root: Path, relative: str, destination: Path, expected_digest: str, expected_size: int, group_id: int, executable: bool) -> None:
+    source_fd = open_source_file(source_root, relative)
+    temporary = destination.with_name('.' + destination.name + '.new-' + str(os.getpid()))
+    try:
+        destination_fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    except BaseException:
+        os.close(source_fd)
+        raise
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        while True:
+            block = os.read(source_fd, 1024 * 1024)
+            if not block:
+                break
+            size += len(block)
+            if size > expected_size:
+                fail(f'source grew during deployment: {relative}')
+            digest.update(block)
+            view = memoryview(block)
+            while view:
+                written = os.write(destination_fd, view)
+                view = view[written:]
+        os.fsync(destination_fd)
+        os.fchown(destination_fd, 0, group_id)
+        os.fchmod(destination_fd, 0o750 if executable else 0o640)
+    finally:
+        os.close(source_fd)
+        os.close(destination_fd)
+    if size != expected_size or digest.hexdigest() != expected_digest:
+        temporary.unlink(missing_ok=True)
+        fail(f'source changed during deployment: {relative}')
+    os.replace(temporary, destination)
+    sync_directory(destination.parent)
+
+
+def remove_legacy_links(top_names: set[str]) -> None:
+    current = ROOT / 'current'
+    if current.is_symlink():
+        current.unlink()
+        sync_directory(ROOT)
+    elif current.exists():
+        fail(f'{ROOT}/current is occupied by a non-symlink object')
+    entry = ROOT / 'bin' / 'hton'
+    if entry.is_symlink():
+        entry.unlink()
+    elif entry.exists() and not entry.is_file():
+        fail(f'unexpected object at {ROOT}/bin/hton')
+    for name in sorted(top_names - {'bin'}):
+        path = ROOT / name
+        if path.is_symlink():
+            path.unlink()
+            sync_directory(ROOT)
+
+
+def prune_stale(top_names: set[str], expected: set[str]) -> None:
+    """Remove managed files absent from the source; never touch mutable state."""
+    for name in sorted(top_names):
+        path = ROOT / name
+        if path.is_symlink() or not path.is_dir():
+            continue
+        for current, dirs, files in os.walk(path, topdown=False, followlinks=False):
+            current_path = Path(current)
+            for child_name in files:
+                child = current_path / child_name
+                if child.relative_to(ROOT).as_posix() not in expected:
+                    child.unlink()
+            for child_name in dirs:
+                try:
+                    (current_path / child_name).rmdir()
+                except OSError:
+                    pass
+
+
+def prune_top_level(expected_top: set[str]) -> None:
+    """Remove managed top-level paths no longer present in the selected profile.
+
+    Mutable state and independently built helpers are preserved. Unknown
+    operator-created entries are never touched.
+    """
+    for name in sorted(MANAGED_TOP):
+        if name in expected_top or name in PRESERVED_TOP:
+            continue
+        path = ROOT / name
+        if path.is_symlink():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+        elif path.is_file():
+            path.unlink()
+        elif path.exists():
+            fail(f'managed top-level path has an unsupported type: {path}')
+        else:
+            continue
+        sync_directory(ROOT)
+
+
+def remove_legacy_deployments() -> None:
+    """Delete old content-addressed snapshot dirs once nothing references them."""
+    deployments = ROOT / 'deployments'
+    if deployments.is_symlink() or not deployments.exists() or not deployments.is_dir():
+        return
+    units = ROOT / 'work' / 'minimum' / 'units'
+    if units.is_dir() and not units.is_symlink():
+        for unit in units.glob('*.service'):
+            try:
+                if b'/deployments/' in unit.read_bytes():
+                    return  # recovery units still target the old snapshots
+            except OSError:
+                return
+    children = list(deployments.iterdir())
+    for child in children:
+        if child.is_symlink() or not child.is_dir() or not (len(child.name) == 64 and all(c in '0123456789abcdef' for c in child.name)):
+            return  # not the known legacy snapshot layout; refuse to touch it
+    for child in children:
+        shutil.rmtree(child)
+    deployments.rmdir()
+    sync_directory(ROOT)
+
+
+def verify_managed_tree(top_names: set[str], group_id: int) -> None:
+    for name in sorted(top_names):
+        path = ROOT / name
+        if path.is_symlink():
+            fail(f'managed path must not be a symlink: {path}')
+        if not path.is_dir():
+            continue
+        for current, dirs, files in os.walk(path, followlinks=False):
+            base = Path(current)
+            ensure_directory(base, group_id)
+            for child_name in dirs:
+                child = base / child_name
+                if child.is_symlink():
+                    fail(f'managed tree contains a symlink directory: {child}')
+            for child_name in files:
+                child = base / child_name
+                if child.is_symlink():
+                    fail(f'managed tree contains a symlink file: {child}')
+
+
+def sync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def sync_tree(path: Path) -> None:
+    for current, _dirs, _files in os.walk(path, topdown=False, followlinks=False):
+        sync_directory(Path(current))
+
+
+def ensure_private_directory(path: Path) -> None:
+    if path.exists() and (path.is_symlink() or not path.is_dir()):
+        fail(f'secrets target directory is unsafe: {path}')
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.geteuid() == 0:
+        os.chown(path, 0, 0)
+    os.chmod(path, 0o700)
+
+
+def copy_secrets_tree(source: Path) -> int:
+    """Copy the operator's ``.secrets`` profile into the target, root-only.
+
+    The private repository (including its ``.git``) is not copied wholesale;
+    regular profile files are mirrored with 0600/0700 and symlinks are refused.
+    Target-only files are preserved so runtime-created secrets are not deleted.
+    """
+    secrets = source / '.secrets'
+    if secrets.is_symlink():
+        fail('.secrets source must not be a symlink')
+    if not secrets.exists():
+        return 0
+    if not secrets.is_dir():
+        fail('.secrets source must be a directory')
+    target = ROOT / '.secrets'
+    ensure_private_directory(target)
+    count = 0
+    for current, dirs, files in os.walk(secrets, followlinks=False):
+        current_path = Path(current)
+        if '.git' in dirs:
+            dirs.remove('.git')
+        for name in dirs:
+            child = current_path / name
+            if child.is_symlink():
+                fail(f'secrets source contains a symlink directory: {child}')
+        for name in files:
+            if name == '.git':
+                continue
+            child = current_path / name
+            relative = child.relative_to(secrets)
+            destination = target / relative
+            ensure_private_directory(destination.parent)
+            temporary = destination.parent / ('.new-' + os.urandom(8).hex())
+            try:
+                source_fd = open_source_file(secrets, relative.as_posix())
+            except (DeployError, OSError) as error:
+                raise DeployError('secrets source entry is unavailable or unsafe') from error
+            try:
+                with os.fdopen(source_fd, 'rb') as stream:
+                    before = os.fstat(stream.fileno())
+                    if before.st_size > MAX_BYTES:
+                        fail('secrets source entry exceeds the size limit')
+                    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                    with os.fdopen(descriptor, 'wb') as output:
+                        remaining = before.st_size
+                        while remaining and (block := stream.read(min(1024 * 1024, remaining))):
+                            output.write(block)
+                            remaining -= len(block)
+                        after = os.fstat(stream.fileno())
+                        if remaining or (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                                after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                            fail('secrets source entry changed during delivery')
+                        output.flush()
+                        if os.geteuid() == 0:
+                            os.fchown(output.fileno(), 0, 0)
+                        os.fchmod(output.fileno(), 0o600)
+                        os.fsync(output.fileno())
+                os.replace(temporary, destination)
+                sync_directory(destination.parent)
+            finally:
+                temporary.unlink(missing_ok=True)
+            count += 1
+    sync_directory(target)
+    return count
+
+
+def deploy(source_arg: str) -> tuple[str, bool]:
+    if os.geteuid() != 0:
+        fail('deployment promotion requires root')
+    source = canonical_source(source_arg)
+    inventory, tree_digest = source_files(source)
+    top_names = {PurePosixPath(name).parts[0] for name, *_rest in inventory}
+    safe_target(top_names)
+    if ROOT.exists():
+        if ROOT.is_symlink() or not ROOT.is_dir():
+            fail(f'{ROOT} must be a regular directory')
+        root_info = ROOT.stat()
+        if root_info.st_uid != 0 or root_info.st_mode & 0o022:
+            fail(f'{ROOT} must be root-owned and not writable by group or others')
+    else:
+        ROOT.mkdir(mode=0o755)
+    with deployment_lock():
+        safe_target(top_names)
+        group_id = configure_group()
+        root_info = ROOT.stat()
+        if root_info.st_uid != 0 or root_info.st_mode & 0o022:
+            fail(f'{ROOT} must be root-owned and not writable by group or others')
+        if root_info.st_gid != group_id:
+            os.chown(ROOT, 0, group_id)
+        if stat.S_IMODE(root_info.st_mode) != 0o750:
+            os.chmod(ROOT, 0o750)
+        marker_tmp = ROOT / f'.hton-source-deploy-managed-{os.getpid()}'
+        marker_tmp.write_bytes(b'managed-by-cmd-deploy-source-v1\n')
+        os.chown(marker_tmp, 0, 0)
+        os.chmod(marker_tmp, 0o600)
+        descriptor = os.open(marker_tmp, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.replace(marker_tmp, MANAGED)
+        sync_directory(ROOT)
+        remove_legacy_links(top_names)
+        expected = {relative for relative, *_rest in inventory}
+        for relative, _source_file, digest, size, executable in inventory:
+            destination = ROOT / relative
+            ensure_directory(destination.parent, group_id)
+            install_source_file(source, relative, destination, digest, size, group_id, executable)
+        copy_secrets_tree(source)
+        prune_stale(top_names, expected)
+        prune_top_level(set(top_names))
+        verify_managed_tree(top_names, group_id)
+        remove_legacy_deployments()
+        _latest_inventory, latest_digest = source_files(source)
+        if latest_digest != tree_digest:
+            fail('source tree changed during deployment; rerun delivery from a stable source before setup')
+        sync_tree(ROOT)
+        helpers_available = all(
+            (ROOT / f'libexec/{name}').is_file()
+            and bool((ROOT / f'libexec/{name}').stat().st_mode & 0o111)
+            for name in ('hton-core', 'hton-runtime')
+        )
+        return tree_digest, helpers_available
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog='scripts/deploy', description='Copy the minimum HTON runtime closure into its configured /opt directory without building it.')
+    parser.add_argument('--source-dir', metavar='ABSOLUTE_DIR')
+    parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--json', action='store_true')
+    parser.add_argument('--quiet', action='store_true')
+    parser.add_argument('--yes', action='store_true')
+    args = parser.parse_args()
+    source = args.source_dir or str(source_default())
+    try:
+        source_root = canonical_source(source)
+        global ROOT, MANAGED, LEGACY_MANAGED
+        ROOT = deployment_root(source_root)
+        MANAGED = ROOT / '.hton-source-deploy-managed'
+        LEGACY_MANAGED = ROOT / '.hton-deploy-managed'
+        inventory, tree_digest = source_files(source_root)
+        if args.dry_run:
+            if not args.quiet:
+                secrets_present = (source_root / '.secrets').is_dir()
+                result = {'status': 'planned', 'delivery': 'minimum', 'treeDigest': tree_digest, 'target': str(ROOT), 'fileCount': len(inventory), 'secrets': secrets_present}
+                print(__import__('json').dumps(result, separators=(',', ':')) if args.json else f'hton deploy: would copy {len(inventory)} files to {ROOT}')
+            return 0
+        if os.geteuid() != 0:
+            sudo = shutil.which('sudo')
+            if sudo is None:
+                fail('sudo is required for deployment but was not found')
+            argv = [sudo]
+            if args.quiet or args.json or not (sys.stdin.isatty() and sys.stderr.isatty()):
+                argv.append('-n')
+            argv += ['--', str(Path(__file__).resolve())]
+            if args.source_dir:
+                argv.extend(['--source-dir', source])
+            if args.json:
+                argv.append('--json')
+            if args.quiet:
+                argv.append('--quiet')
+            if args.yes:
+                argv.append('--yes')
+            return subprocess.run(argv, check=False).returncode
+        snapshot_id, helpers_available = deploy(source)
+    except (DeployError, ConfigError, OSError, subprocess.CalledProcessError) as exc:
+        print(f'ERROR: Code delivery failed. {exc}', file=sys.stderr)
+        return 1
+    if not args.quiet:
+        result = {'status': 'active', 'delivery': 'minimum', 'treeDigest': snapshot_id, 'target': str(ROOT), 'helpersAvailable': helpers_available, 'minimumInstallerAvailable': True}
+        print(__import__('json').dumps(result, separators=(',', ':')) if args.json else f'OK: Code copied to {ROOT}.')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

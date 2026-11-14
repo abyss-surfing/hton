@@ -1,0 +1,12 @@
+[Unit]
+Description=HTON client-page snapshot refresh schedule
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=60s
+AccuracySec=5s
+Persistent=yes
+Unit=hton-client-page.service
+
+[Install]
+WantedBy=timers.target

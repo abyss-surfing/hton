@@ -1,0 +1,103 @@
+name: Source consistency and gated final build
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      final_acceptance:
+        description: U0 then F0 after coordinator-recorded full R1 implementation
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      ready: ${{ steps.readiness.outputs.ready }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Syntax and documents only; no builds before D81 readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' path; do
+            case "$(head -n 1 "$path")" in
+              '#!/bin/bash'|'#!/usr/bin/env bash'|'#!/bin/sh'|'#!/usr/bin/env sh') bash -n "$path" ;;
+            esac
+          done < <(find bin lib scripts -type f -print0)
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for path in [Path('platform/images.lock.json'), Path('docs/sdd/file-index.json'), *Path('platform/schemas').glob('*.json')]:
+              json.loads(path.read_text())
+          PY
+      - id: readiness
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          ready = '<!-- hton-implementation-complete: R1 -->' in Path('docs/IMPLEMENTATION-STATUS.md').read_text().splitlines()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('ready=' + str(ready).lower() + '\n')
+          PY
+  build:
+    needs: source
+    if: needs.source.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Build only the fully implemented plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt
+          cargo +1.99.1 fmt --all --check
+          cargo +1.99.1 build --workspace --locked
+  unit:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.final_acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: U0
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.99.1 --profile minimal
+          cargo +1.99.1 test --workspace --locked --lib --bins
+  functional:
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: F0 disposable runner preparation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.99.1 --profile minimal
+          cargo +1.99.1 build --workspace --locked
+      - name: F0 after completed U0
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/integration/lifecycle.sh
+          bash tests/integration/runtime-recovery.sh
+          bash tests/integration/protocol-matrix.sh
+          bash tests/integration/legacy-restore.sh

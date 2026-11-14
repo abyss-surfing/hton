@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""Build the standalone minimum source artifact; never builds full R1 or deploys."""
+import argparse
+import importlib.machinery
+import importlib.util
+import io
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tarfile
+
+sys.dont_write_bytecode=True
+root=Path(__file__).resolve().parents[1]
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--output',type=Path,required=True)
+args=parser.parse_args()
+if '<!-- hton-implementation-complete: M0 -->' not in (root/'docs/IMPLEMENTATION-STATUS.md').read_text():
+    parser.error('Minimum implementation completion is required before building')
+loader=importlib.machinery.SourceFileLoader('hton_deploy',str(root/'scripts/deploy'))
+spec=importlib.util.spec_from_loader(loader.name,loader)
+deploy=importlib.util.module_from_spec(spec);loader.exec_module(deploy)
+files,tree=deploy.source_files(root)
+for name,path,*_ in files:
+    content = path.read_bytes()
+    first_line = content.partition(b'\n')[0].strip()
+    if name.endswith('.py') or first_line == b'#!/usr/bin/env python3':
+        compile(content, name, 'exec')
+    elif first_line in (b'#!/bin/bash', b'#!/bin/sh', b'#!/usr/bin/env bash', b'#!/usr/bin/env sh'):
+        subprocess.run(['/bin/bash', '-n'], input=content, check=True)
+args.output.mkdir(parents=True,exist_ok=True)
+manifest={'profile':'M0','sourceTree':tree,'files':[{'path':n,'sha256':d,'bytes':size} for n,p,d,size,x in files]}
+(args.output/'inventory.json').write_text(json.dumps(manifest,indent=2)+'\n')
+archive=args.output/('hton-minimum-'+tree[:16]+'.tar.gz')
+with tarfile.open(archive,'w:gz') as tar:
+    for name,path,expected,size,executable in files:
+        content=path.read_bytes()
+        if deploy.hashlib.sha256(content).hexdigest()!=expected:
+            raise RuntimeError('Source changed during packaging')
+        info=tarfile.TarInfo('hton/'+name);info.size=size;info.mode=0o755 if executable else 0o644;info.mtime=0
+        tar.addfile(info,io.BytesIO(content))
+print(json.dumps({'status':'built','profile':'M0','sourceTree':tree,'archive':str(archive),'files':len(files)}))

@@ -1,0 +1,30 @@
+.env
+docs/tasks/
+var/
+storage/
+certs/
+*.crt
+*.key
+*.pem
+docker-compose.orig.*.yml
+target/
+web/admin/node_modules/
+web/admin/dist/
+platform/web/mask/secrets*
+
+# Local declarative deployment configuration (may contain private names)
+/hton.yaml
+
+# Installed editable configuration and durable working state
+/config/
+/work/
+
+# Standalone, user-maintained secrets/profile repository (its own Git repo).
+# Covers the directory, a gitfile/symlink form, and the legacy root name.
+/.secrets/
+/.secrets
+/secrets/
+
+# Python bytecode caches
+__pycache__/
+*.pyc

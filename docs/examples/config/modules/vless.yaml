@@ -1,0 +1,7 @@
+# Design example, not a configured deployment.
+schemaVersion: 1
+moduleId: vless
+settings:
+  transport: ws
+  path:
+    secretRef: vless/path
