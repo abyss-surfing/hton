@@ -1,0 +1,47 @@
+# Native domain/certificate/lifecycle evidence is required before activation.
+moduleId: foreign-amnezia
+phase: r1
+location:
+  inventoryId: modules
+  components: [foreign-amnezia.yaml]
+configSchema: module-v1
+configVersion: 1
+defaults:
+  schemaVersion: 1
+  settings: {}
+requiredOnEnable:
+  - settings.serverNames
+  - settings.hostPorts.tcp
+  - settings.hostPorts.udp
+dependencies: []
+services: [foreign-amnezia]
+listenerClaims: []
+# Trusted allocation binding for the external host publication. Both transports
+# are one service allocation; native in-container ports remain observation-only.
+portAllocation:
+  allocationId: vpn-backend
+  serviceId: foreign-amnezia
+  settingsDocument: module.foreign-amnezia
+  bindingGroup: primary
+  listener:
+    namespace: {kind: host}
+    exposure: public
+    addresses: [0.0.0.0]
+  fields:
+    - path: settings.hostPorts.tcp
+      transport: tcp
+    - path: settings.hostPorts.udp
+      transport: udp
+# These are desired host-published ports. Native in-container ports are
+# discovered from the registered container and preserved unchanged.
+routeClaims: []
+certificateClaims: []
+privileges: [manageForeignLifecycle]
+state: []
+capabilities:
+  check: amnezia.check
+  observe: amnezia.observe
+  render: null
+  setup: amnezia.associate
+  update: null
+  foreignLifecycle: amnezia.lifecycle

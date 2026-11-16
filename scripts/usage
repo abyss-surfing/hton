@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""Collect and print per-user Outline WSS traffic from the local metrics endpoint."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import sys
+import time
+import urllib.request
+
+SOURCE = Path(__file__).resolve().parents[1]
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(SOURCE / "lib"))
+from install_config import deployment_root
+
+ROOT = Path(os.environ["HTON_ROOT"]) if "HTON_ROOT" in os.environ else deployment_root(SOURCE)
+STATE = ROOT / "work/minimum/state.json"
+MANAGED_STATE = ROOT / "work/minimum/managed.json"
+USAGE = ROOT / "work/minimum/usage.json"
+LINE = re.compile(r"^shadowsocks_data_bytes\{([^}]*)\}\s+([0-9.eE+-]+)\s*$")
+LABEL = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)="([^"]*)"')
+
+
+def load(path: Path, default):
+    try:
+        value = json.loads(path.read_text())
+    except FileNotFoundError:
+        return default
+    except (OSError, ValueError, UnicodeError) as error:
+        raise SystemExit("ERROR: cannot read " + str(path) + ": " + str(error))
+    return value if isinstance(value, dict) else default
+
+
+def fetch(port: int) -> str:
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open("http://127.0.0.1:" + str(port) + "/metrics", timeout=5) as stream:
+        data = stream.read(4 * 1024 * 1024 + 1)
+        if len(data) > 4 * 1024 * 1024:
+            raise ValueError("metrics exceed the size limit")
+        return data.decode("utf-8", "replace")
+
+
+def parse(text: str):
+    current = {}
+    for line in text.splitlines():
+        match = LINE.match(line.strip())
+        if not match:
+            continue
+        labels = dict(LABEL.findall(match.group(1)))
+        key = labels.get("access_key", "")
+        direction = labels.get("dir", "")
+        if not key or direction not in ("c<p", "p>t"):
+            continue
+        try:
+            value = int(float(match.group(2)))
+        except (ValueError, OverflowError):
+            continue
+        current[key] = current.get(key, 0) + value
+    return current
+
+
+def human(value: int) -> str:
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    amount = float(value)
+    for unit in units:
+        if amount < 1024 or unit == units[-1]:
+            return f"{amount:.1f} {unit}" if unit != "B" else f"{int(amount)} B"
+        amount /= 1024
+    return str(value)
+
+
+def save(usage):
+    USAGE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = USAGE.with_name("." + USAGE.name + ".new-" + str(os.getpid()))
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(descriptor, (json.dumps(usage, indent=2, sort_keys=True) + "\n").encode())
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    os.replace(temporary, USAGE)
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Per-user Outline traffic")
+    parser.add_argument("--collect", action="store_true", help="update history without printing a table")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--quiet", action="store_true")
+    args = parser.parse_args(argv)
+    state = load(STATE, None)
+    if state is None:
+        state = load(MANAGED_STATE, {})
+    port = state.get("outlineMetricsPort")
+    active = state.get("activeProtocols")
+    if type(port) is not int or not 1 <= port <= 65535 or (isinstance(active, dict) and "outline-wss" not in active):
+        if not args.quiet:
+            print("Outline metrics are not enabled.", file=sys.stderr)
+        return 0
+    try:
+        current = parse(fetch(port))
+    except Exception as error:
+        print("ERROR: Outline metrics are unavailable: " + str(error), file=sys.stderr)
+        return 1
+    usage = load(USAGE, {"users": {}})
+    users = usage.setdefault("users", {})
+    for key, value in current.items():
+        previous = users.get(key, {}).get("last", 0)
+        delta = value - previous if value >= previous else value
+        entry = users.setdefault(key, {"total": 0, "last": 0})
+        entry["total"] += delta
+        entry["last"] = value
+    usage["updated"] = int(time.time())
+    if args.collect:
+        save(usage)
+    if args.quiet or args.collect:
+        return 0
+    if args.json:
+        print(json.dumps(usage, indent=2, sort_keys=True))
+        return 0
+    if not users:
+        print("No Outline traffic recorded yet.")
+        return 0
+    print("Outline traffic (client download + target upload):")
+    print("  %-24s %12s %12s" % ("user", "total", "session"))
+    for key in sorted(users):
+        entry = users[key]
+        print("  %-24s %12s %12s" % (key, human(int(entry.get("total", 0))),
+            human(int(entry.get("last", 0)))))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,818 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HTON R1 durable registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "instanceId",
+    "revision",
+    "entries",
+    "diagnostics",
+    "recoveryOriginals"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "instanceId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "entries": {
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/entry"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "$ref": "#/$defs/issue"
+      }
+    },
+    "recoveryOriginals": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "number": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "restartPolicy": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "dockerNo"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "dockerAlways"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "dockerUnlessStopped"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "systemdDisabled"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "systemdEnabled"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "maximumRetryCount"
+          ],
+          "properties": {
+            "kind": {
+              "const": "dockerOnFailure"
+            },
+            "maximumRetryCount": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            }
+          }
+        }
+      ]
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resourceId",
+        "serviceId",
+        "fingerprint",
+        "locator"
+      ],
+      "properties": {
+        "resourceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "serviceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "locator": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "containerId"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "dockerContainer"
+                },
+                "containerId": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "unitId"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "systemdUnit"
+                },
+                "unitId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "artifactId"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "protectedArtifact"
+                },
+                "artifactId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "safeFields": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleId",
+        "serviceId",
+        "resourceId",
+        "operationId",
+        "transactionId",
+        "count",
+        "durationMs",
+        "errorCode"
+      ],
+      "properties": {
+        "moduleId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+            }
+          ]
+        },
+        "serviceId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+            }
+          ]
+        },
+        "resourceId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+            }
+          ]
+        },
+        "operationId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+            }
+          ]
+        },
+        "transactionId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+            }
+          ]
+        },
+        "count": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            }
+          ]
+        },
+        "durationMs": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            }
+          ]
+        },
+        "errorCode": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "maxLength": 64
+            }
+          ]
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checkId",
+        "moduleId",
+        "outcome",
+        "timestamp",
+        "vantage",
+        "inputFingerprint",
+        "details"
+      ],
+      "properties": {
+        "checkId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "moduleId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+            }
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "pass",
+            "fail",
+            "unknown",
+            "skipped"
+          ]
+        },
+        "timestamp": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "vantage": {
+          "enum": [
+            "localConfiguration",
+            "localRuntime",
+            "externalProbe",
+            "nativeValidation",
+            "supplied"
+          ]
+        },
+        "inputFingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "details": {
+          "$ref": "#/$defs/safeFields"
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "moduleId",
+        "configPath",
+        "resourceId",
+        "operationId",
+        "retryability",
+        "repairHint",
+        "retainedState"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "moduleId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+            }
+          ]
+        },
+        "configPath": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "maxItems": 128,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+              }
+            }
+          ]
+        },
+        "resourceId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+            }
+          ]
+        },
+        "operationId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "retryability": {
+          "enum": [
+            "never",
+            "afterRepair",
+            "afterReconcile",
+            "safeRetry"
+          ]
+        },
+        "repairHint": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "maxLength": 4096
+            }
+          ]
+        },
+        "retainedState": {
+          "enum": [
+            "unchanged",
+            "desiredSaved",
+            "originalsRetained",
+            "stoppedWithArtifacts",
+            "recoveryRequired"
+          ]
+        }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stepId",
+        "idempotencyKey",
+        "status",
+        "recordedAt",
+        "resources",
+        "retainedArtifacts",
+        "error",
+        "stateFingerprints"
+      ],
+      "properties": {
+        "stepId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "idempotencyKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "status": {
+          "enum": [
+            "prepared",
+            "applied",
+            "verified",
+            "compensated",
+            "failed",
+            "uncertain"
+          ]
+        },
+        "recordedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "resources": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/resource"
+          }
+        },
+        "retainedArtifacts": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+          }
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/error"
+            }
+          ]
+        },
+        "stateFingerprints": {
+          "type": "object",
+          "maxProperties": 128,
+          "propertyNames": {
+            "$ref": "#/$defs/id"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/digest"
+          }
+        }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "severity",
+        "moduleId",
+        "objectId",
+        "path",
+        "message",
+        "repairHint"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "information"
+          ]
+        },
+        "moduleId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+            }
+          ]
+        },
+        "objectId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+            }
+          ]
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "maxItems": 128,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+              }
+            }
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "repairHint": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "maxLength": 4096
+            }
+          ]
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleId",
+        "ownership",
+        "membership",
+        "resources",
+        "setupState",
+        "checkpoints",
+        "installedArtifactVersions",
+        "originalPolicies",
+        "adoptionScope",
+        "retainedArtifacts"
+      ],
+      "properties": {
+        "moduleId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "ownership": {
+          "enum": [
+            "owned",
+            "associated"
+          ]
+        },
+        "membership": {
+          "enum": [
+            "installed",
+            "removedRetained",
+            "cleanupRequired"
+          ]
+        },
+        "resources": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/resource"
+          }
+        },
+        "setupState": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "state"
+              ],
+              "properties": {
+                "state": {
+                  "const": "complete"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "state",
+                "blockedStep",
+                "requiredOperatorAction"
+              ],
+              "properties": {
+                "state": {
+                  "const": "incomplete"
+                },
+                "blockedStep": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+                    }
+                  ]
+                },
+                "requiredOperatorAction": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "checkpoints": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "$ref": "#/$defs/receipt"
+          }
+        },
+        "installedArtifactVersions": {
+          "type": "object",
+          "maxProperties": 4096,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "originalPolicies": {
+          "type": "object",
+          "maxProperties": 4096,
+          "additionalProperties": {
+            "$ref": "#/$defs/restartPolicy"
+          }
+        },
+        "adoptionScope": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "approvalId",
+                "resources",
+                "lifecycleActions",
+                "originalEvidence"
+              ],
+              "properties": {
+                "approvalId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+                },
+                "resources": {
+                  "type": "array",
+                  "maxItems": 128,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+                  },
+                  "uniqueItems": true
+                },
+                "lifecycleActions": {
+                  "type": "array",
+                  "maxItems": 4,
+                  "items": {
+                    "enum": [
+                      "start",
+                      "stop",
+                      "disableAutostart",
+                      "restoreAutostart"
+                    ]
+                  },
+                  "uniqueItems": true
+                },
+                "originalEvidence": {
+                  "type": "array",
+                  "maxItems": 4096,
+                  "items": {
+                    "$ref": "#/$defs/evidence"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "retainedArtifacts": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+          }
+        }
+      }
+    }
+  },
+  "$comment": "Wire shape mirrors RegistryDocument/RegistrySnapshot. RegistryStore additionally enforces identity uniqueness, exact local adoption approvals, original policies and lifecycle preconditions. Schema validity is not qualification or acceptance."
+}

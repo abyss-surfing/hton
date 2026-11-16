@@ -1,0 +1,35 @@
+name: Build completed R1 candidate artifacts
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Require completed plans before any compilation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          if '<!-- hton-implementation-complete: R1 -->' not in Path('docs/IMPLEMENTATION-STATUS.md').read_text().splitlines():
+              raise SystemExit('D81: full implementation readiness is required before build')
+          PY
+      - name: External fixed toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.99.1 --profile minimal --target x86_64-unknown-linux-musl
+      - name: Package without installing, publishing or running product
+        shell: bash
+        run: tooling/package-release --output /tmp/hton-release-output
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hton-linux-amd64-candidate
+          path: /tmp/hton-release-output/*
+          if-no-files-found: error
+          retention-days: 14

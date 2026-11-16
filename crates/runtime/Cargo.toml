@@ -1,0 +1,19 @@
+[package]
+name = "hton-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+hton-runtime-contract = { path = "../runtime-contract" }
+hton-storage = { path = "../fs-support" }
+hton-logging = { path = "../logging" }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+hton-host.workspace = true
+rustix.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,27 @@
+moduleId: vless
+phase: r1
+location:
+  inventoryId: modules
+  components: [vless.yaml]
+configSchema: module-v1
+configVersion: 1
+defaults:
+  schemaVersion: 1
+  settings: {transport: ws, path: {secretRef: vless/path}}
+dependencies: []
+services: [xray, unbound]
+listenerClaims: []
+# VLESS is routed through the shared public HAProxy/Caddy edge; it has no
+# separately allocated externally reachable backend port.
+portAllocation: null
+routeClaims: []
+certificateClaims: []
+privileges: [dockerLifecycle]
+state: []
+capabilities:
+  check: xray.check
+  observe: xray.observe
+  render: xray.render
+  setup: xray.setup
+  update: null
+  foreignLifecycle: null

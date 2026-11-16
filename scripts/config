@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+self="$(readlink -f -- "$0")"
+root="$(dirname -- "$(dirname -- "$self")")"
+. "$root/lib/hton"
+hton_cli config "$@"

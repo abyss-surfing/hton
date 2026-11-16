@@ -1,0 +1,5 @@
+# Design example, not a configured deployment.
+schemaVersion: 1
+moduleId: trojan-tls
+settings:
+  hostname: trojan.example.com

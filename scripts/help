@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+set -euo pipefail
+self="$(readlink -f -- "$0")"
+root="$(dirname -- "$(dirname -- "$self")")"
+. "$root/lib/hton"
+hton_parse_common "$@" || exit 2
+((${#hton_cli_arguments[@]} <= 1)) || { hton_usage_error; exit 2; }
+name="${hton_cli_arguments[0]:-help}"
+binding="$(hton_command_binding "$name")" || { hton_usage_error; exit 2; }
+if [[ "$name" == help ]]; then
+  cat <<'HELP'
+hton — HTON command line
+Usage: hton [common flags] COMMAND [arguments] [flags]
+Command help: hton help COMMAND or hton COMMAND --help.
+
+CLI bindings use preinstalled libexec helpers:
+  config check         schema/syntax/normalization; other checks are unverified
+  modules list         catalogue, registry and saved membership; native unverified
+  runtime status       independent durable-state read; observations are historical
+
+R1 commands are declared in the CLI, but availability depends on each Core binding:
+  install, setup, deploy, up, down, validate, diag, keys, share, certs, restart, switch,
+  remap-undo, doctor, uninstall, whoami, usage; mutating config/modules operations.
+doctor currently supports local read-only observation only; --fix and --watch
+return structured module.incomplete. Other incomplete operations are listed in
+docs/IMPLEMENTATION-STATUS.md; CLI allowlisting does not imply implementation.
+feature/service are compatibility delegates. update fast-forwards origin/main and refreshes the HTON-owned composition.
+upgrade and IPv6 tunnel are deferred. The CLI does not require an API/web daemon.
+HELP
+else
+  printf 'hton %s — binding: %s\n' "$name" "$binding"
+  case "$name" in
+    config) cat <<'HELP'
+  config check [--json]
+  config plan [--file FILE] [--json]
+  config stage [--file FILE] [--json]
+  config apply [--plan ID] [--json]
+check reads current config; stdout does not expose normalized settings.
+plan is a read-only preview without a persisted PlanId; stage/apply are explicit changes.
+Core checks fresh installation/native facts before stage/apply; incomplete evidence is never success.
+HELP
+      ;;
+    modules) cat <<'HELP'
+  modules list [--json]
+  modules add ID
+  modules enable ID... [--save-only]
+  modules disable ID... [--save-only]
+  modules remove ID
+  modules purge ID
+  modules update ID
+add installs a new module disabled; remove preserves its data.
+purge is a separate irreversible deletion; update changes the image explicitly.
+Installed, desired and native states are distinct; Core determines readiness.
+HELP
+      ;;
+    runtime) cat <<'HELP'
+  runtime status [--json]
+  runtime start [BUNDLE_ID] [--json]
+  runtime rollback [BUNDLE_ID] [--json]
+status does not depend on Core/compiler/YAML. Missing state means absent, not stopped.
+Resource states are historical receipts; native health/admissibility are unverified.
+start/rollback require independent admission/native checks of the actual bundle.
+HELP
+      ;;
+    usage) cat <<'HELP'
+  usage [--json] [--collect]
+prints per-user Outline WSS traffic accumulated by the local metrics collector.
+--collect stores a new sample without printing; the install timer runs it every 5 minutes.
+Run with sudo because the protected state and usage history are root-only.
+HELP
+      ;;
+    deploy) cat <<'HELP'
+  deploy [--source-dir ABSOLUTE_DIR] [--dry-run] [--json] [--quiet]
+Copies the minimum runtime closure, configures group hton, and atomically
+replaces the configured target. Delivers the Python minimum installer, shell
+entrypoints, docs/CLI.md, docs/MINIMUM-INSTALL.md and the pinned image inventory
+only; full-R1 sources, modules, schemas and build inputs are not deployed.
+Excludes .git, docs/tasks, generated output, mutable state and build-only
+scripts. It does not build or download files.
+HELP
+      ;;
+    install|setup) printf '  %s [--profile minimal] [--site-domain DOMAIN] [--certificate-email EMAIL]\n' "$name"; printf '%s\n' '          [--amnezia-container NAME_OR_FULL_ID] [--dns-credentials PRIVATE_JSON_FILE]' '          [--with mtproto,hysteria,outline,amneziawg] [--without mtproto,hysteria,outline,amneziawg]' '          [--mtproto-camouflage DOMAIN] [--outline-binary PATH] [--chain-sni DOMAIN] [--hysteria-port PORT]' '          [--test-sni DOMAIN --test-tunnel-port PORT] [--no-test-tunnel] [--rotate-client-page]' '  Optional minimum protocols: MTProto (mtg), Hysteria2 UDP, own Outline WSS and AmneziaWG2 (UDP).' '  A fresh profile publishes guest credentials at a generated secret URL; an explicit empty clientAccessPage.path disables it.' '  --rotate-client-page replaces the URL immediately.' '  After success, per-user guest files and client-page.md are written to .secrets/share.' '  --chain-sni www.example.com uses one neutral site subdomain for REALITY and MTProto on 443.' '  --test-sni/--test-tunnel-port route one dedicated test SNI to a loopback reverse-forwarded port; off by default.' '  install must run from the cloned project root; it deploys the current source when it differs from the target, then invokes the installed setup as root with SUDO_USER preserved.' '  setup requires the configured target as its physical working directory; it collects missing parameters and secrets.' '  Default HTTP-01 certificate validation needs no DNS API key.' '  Existing HTTP servers can serve verification files through a verified webroot.' '  Exact local TTY remap consent is required.' '  For explicit DNS API mode only: private JSON keys apiKey and apiPassword; never send secrets in chat.' '  Full-R1 home/compat/lab profiles require their separate prebuilt helpers.' ;;
+    up|down) printf '  %s [--json]\n' "$name"; printf '%s\n' 'The operation applies to the complete saved HTON composition.' ;;
+    validate) printf '%s\n' '  validate BUNDLE_ID [--json]' 'Explicit mutating Docker qualification; not a dry-run.' ;;
+    diag) printf '%s\n' '  diag [--json] [--verbose] [--section SECTION]...' ;;
+    keys) printf '%s\n' '  keys [kinds...] [--device ID] [--show] [--force] [--json]' 'Credential disclosure requires separate scoped authorization.' ;;
+    share) printf '%s\n' '  share [identity] [--kind K]... [--target TARGET] [--client CLIENT] [--format text|json|qr] [--out FILE] [--json]' ;;
+    certs) printf '%s\n' '  certs issue [--domain D]... [--force] [--json]' '  certs status|list [--json]' ;;
+    restart) printf '%s\n' '  restart [services...] [--wait N]' ;;
+    switch) printf '%s\n' '  switch [PORT] [--validate-only] [--json]' 'Public 443 and foreign resources require exact approval.' ;;
+    remap-undo) printf '%s\n' '  remap-undo [last|all|ID]' 'Restore checks for drift and preserves original data.' ;;
+    doctor) printf '%s\n' '  doctor [--json]' '  --fix and --watch N are unavailable; only local read-only observation is implemented.' ;;
+    uninstall) printf '%s\n' '  uninstall [--keep-certs] [--keep-env] [--foreign] [--purge]' ;;
+    whoami) printf '%s\n' '  whoami [--json]' ;;
+    update) printf '%s\n' '  update [--dry-run]' 'Fast-forwards origin/main, then reinstalls HTON-owned containers; foreign containers are untouched.' 'The installer enables a daily check that updates only after a week without install/update.' ;;
+    feature|service) printf '%s\n' 'Compatibility delegate to modules/config/lifecycle; no separate business logic.' ;;
+    upgrade|tunnel) printf '%s\n' 'Command is deferred beyond R1.' ;;
+  esac
+fi
+cat <<'HELP'
+
+Common flags: -h/--help, -y/--yes, --dry-run, --json, -q/--quiet.
+They may appear before or after the command; repeated flags are idempotent.
+--yes does not grant foreign/host-policy/443 consent. Dry-run creates no state.
+Exit codes: 0 result; 1 failure; 2 usage; 3 missing binding/dependency.
+Full contract: docs/CLI.md. Implementation status is in the source repository.
+HELP

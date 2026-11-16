@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+self="$(readlink -f -- "$0")"
+root="$(dirname -- "$(dirname -- "$self")")"
+. "$root/lib/hton"
+if [[ ${1:-} == --with-eidolon ]]; then
+    if [[ $# -lt 2 || ! -x "$2/setup" ]]; then
+        echo 'Usage: scripts/setup --with-eidolon /path/to/eidolon [HTON OPTIONS]' >&2
+        exit 2
+    fi
+    "$2/setup"
+    shift 2
+fi
+hton_cli setup "$@"

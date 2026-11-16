@@ -1,0 +1,6 @@
+# Design example, not a configured deployment.
+schemaVersion: 1
+moduleId: mtproto
+settings:
+  backend: mtg
+  camouflageName: media.example.com

@@ -1,0 +1,113 @@
+schemaVersion: 1
+
+root:
+  schemaVersion: 1
+  instance:
+    name: hton
+    # Connection name shown in the Amnezia app (normally the server country).
+    # The client username stays a separate credential identity.
+    # label: "🇷🇺 Россия"
+  installation:
+    systemd: true
+    pathShim: false
+  logging:
+    level: info
+    directory: /var/logs/hton
+    maxBytes: 67108864
+    retentionDays: 7
+  core:
+    edge:
+      listen: {transport: tcp, port: 4443, addressFamilies: [ipv4]}
+      domains: [vps.example.com]
+      hostPolicy:
+        wildcardZone: example.com
+        redirectTarget: https://vps.example.com/
+        unknown: reject
+    certificates:
+      ca: letsencrypt
+      challenge: dns-01
+      provider: internetbs
+      email: you@example.com
+      wildcardDomain: example.com
+      credentials:
+        apiKey: {secretRef: internetbs/api-key}
+        apiPassword: {secretRef: internetbs/api-password}
+    dns:
+      upstreamMode: tls-forward
+      upstreams:
+        primary:
+          addresses: [1.1.1.1, 1.0.0.1]
+          port: 853
+          tlsName: one.one.one.one
+      upstreamOrder: [primary]
+      fallback: fail-closed
+    clientAccessPage:
+      # Omit path to publish guest credentials at a generated secret URL on
+      # first install. An explicit path: "" deliberately disables the page.
+      names: {}
+      refreshSeconds: 60
+  onboarding:
+    defaultConnection: gateway
+    preferredTargets: [other-tv, quest]
+
+modules:
+  foreign-amnezia:
+    enabled: true
+    settings:
+      mode: provision
+      container: amnezia-xray
+      serverNames: [static.example.com]
+      compatibility: {legacyServerNames: []}
+      hostPorts: {tcp: 5714, udp: 5714}
+      provision: {clientName: guest}
+      admin: {access: generate, user: hton-amnezia, sshPort: 22}
+  mtproto:
+    enabled: true
+    settings:
+      backend: mtg
+      camouflageName: media.example.com
+  outline-wss:
+    # Requires the pinned outline-ss-server binary (see tooling); disabled by default.
+    enabled: false
+    settings:
+      serverName: assets.example.com
+      streamPath: /assets/stream
+      packetPath: /assets/session
+  hysteria:
+    enabled: true
+    settings:
+      hostname: example.com
+      listen: {transport: udp, port: 443, scope: public, addressFamilies: [ipv4]}
+  amneziawg:
+    enabled: true
+    settings:
+      backend: amneziawg-go
+      hostname: example.com
+      subnet: 10.66.66.0/24
+      listen: {transport: udp, port: 5500, scope: public, addressFamilies: [ipv4]}
+
+secrets:
+  dns:
+    internetbsApiKey: CHANGE-ME-internetbs-api-key
+    internetbsApiPassword: CHANGE-ME-internetbs-api-password
+  amnezia:
+    adminSshKey: CHANGE-ME-admin-ssh-key
+  hysteria:
+    password: CHANGE-ME-hysteria-password
+  outline:
+    tcpPath: /assets/stream
+    udpPath: /assets/session
+
+site:
+  # Absolute document root of an existing website. Empty means auto-detect
+  # (/var/www/html, /var/www); an unusable configured root fails the install
+  # instead of replacing the real site with the placeholder.
+  root: ''
+  indexHtml: |-
+    <!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+    <html><head>
+    <title>403 Forbidden</title>
+    </head><body>
+    <h1>Forbidden</h1>
+    <p>You don't have permission to access this resource.</p>
+    </body></html>

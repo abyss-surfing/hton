@@ -1,0 +1,28 @@
+# Generated from trusted HTON serializer; own TLS terminates only in Caddy.
+global
+    maxconn 512
+    nbthread 1
+    log stdout format raw local0 warning
+
+defaults
+    mode tcp
+    log global
+    timeout connect 5s
+    timeout client 5m
+    timeout server 5m
+    timeout tunnel 1h
+
+frontend tls_ingress
+    bind {{LISTEN}}
+    tcp-request inspect-delay 5s
+    acl valid_hello req.ssl_hello_type 1
+    acl allowed_sni req.ssl_sni -i {{ALLOWED_SNI}}
+    tcp-request content reject if valid_hello !allowed_sni
+    tcp-request content accept if valid_hello allowed_sni
+    tcp-request content reject if WAIT_END
+{{RAW_ROUTES}}
+    default_backend own_https
+
+backend own_https
+    server caddy {{CADDY_ENDPOINT}} check inter 5s fall 3 rise 2
+{{RAW_BACKENDS}}

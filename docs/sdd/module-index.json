@@ -1,0 +1,445 @@
+[
+  {
+    "id": "vless",
+    "phase": "R1",
+    "location": "server",
+    "services": [
+      "xray",
+      "unbound"
+    ],
+    "settings": [
+      "transport",
+      "path"
+    ],
+    "manifest": "modules/vless.yaml",
+    "config": "config/modules/vless.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "naive",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "caddy"
+    ],
+    "settings": [],
+    "manifest": "modules/naive.yaml",
+    "config": "config/modules/naive.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "mtproto",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "mtg-or-telemt"
+    ],
+    "settings": [
+      "backend",
+      "camouflageName"
+    ],
+    "manifest": "modules/mtproto.yaml",
+    "config": "config/modules/mtproto.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "hysteria",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "hysteria"
+    ],
+    "settings": [
+      "listen",
+      "hostname"
+    ],
+    "manifest": "modules/hysteria.yaml",
+    "config": "config/modules/hysteria.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "dot",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "haproxy",
+      "unbound"
+    ],
+    "settings": [
+      "listen",
+      "hostname"
+    ],
+    "manifest": "modules/dot.yaml",
+    "config": "config/modules/dot.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "foreign-amnezia",
+    "phase": "R1",
+    "location": "server",
+    "services": [
+      "relay"
+    ],
+    "settings": [
+      "container",
+      "serverNames"
+    ],
+    "manifest": "modules/foreign-amnezia.yaml",
+    "config": "config/modules/foreign-amnezia.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "foreign-outline",
+    "phase": "optional",
+    "location": "server",
+    "services": [],
+    "settings": [
+      "container",
+      "action"
+    ],
+    "manifest": "modules/foreign-outline.yaml",
+    "config": "config/modules/foreign-outline.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "router-gateway",
+    "phase": "optional",
+    "location": "gateway",
+    "services": [
+      "gateway-adapter"
+    ],
+    "settings": [
+      "profile"
+    ],
+    "manifest": "modules/router-gateway.yaml",
+    "config": "config/modules/router-gateway.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "linux-gateway",
+    "phase": "optional",
+    "location": "gateway",
+    "services": [
+      "gateway-adapter"
+    ],
+    "settings": [
+      "profile"
+    ],
+    "manifest": "modules/linux-gateway.yaml",
+    "config": "config/modules/linux-gateway.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "ipv6-he",
+    "phase": "far-future",
+    "location": "host",
+    "services": [
+      "he-adapter"
+    ],
+    "settings": [
+      "serverIPv4",
+      "clientIPv6",
+      "routedPrefix",
+      "credentials"
+    ],
+    "manifest": "modules/ipv6-he.yaml",
+    "config": "config/modules/ipv6-he.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "ssh-session",
+    "phase": "optional",
+    "location": "host",
+    "services": [
+      "ssh-adapter"
+    ],
+    "settings": [
+      "mode"
+    ],
+    "manifest": "modules/ssh-session.yaml",
+    "config": "config/modules/ssh-session.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "site-content",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "caddy"
+    ],
+    "settings": [
+      "contentId"
+    ],
+    "manifest": "modules/site-content.yaml",
+    "config": "config/modules/site-content.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "doctor-watch",
+    "phase": "optional",
+    "location": "control",
+    "services": [],
+    "settings": [
+      "intervalSeconds"
+    ],
+    "manifest": "modules/doctor-watch.yaml",
+    "config": "config/modules/doctor-watch.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "telegram",
+    "phase": "later-management",
+    "location": "control",
+    "services": [
+      "admin"
+    ],
+    "settings": [
+      "botToken",
+      "allowedUserIds"
+    ],
+    "manifest": "modules/telegram.yaml",
+    "config": "config/modules/telegram.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "outline-wss",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "outline",
+      "caddy"
+    ],
+    "settings": [
+      "streamPath",
+      "packetPath"
+    ],
+    "manifest": "modules/outline-wss.yaml",
+    "config": "config/modules/outline-wss.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "private-socks",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "xray",
+      "unbound"
+    ],
+    "settings": [
+      "listen"
+    ],
+    "manifest": "modules/private-socks.yaml",
+    "config": "config/modules/private-socks.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "https-proxy",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "caddy"
+    ],
+    "settings": [],
+    "manifest": "modules/https-proxy.yaml",
+    "config": "config/modules/https-proxy.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "trojan-ws",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "xray",
+      "unbound",
+      "caddy"
+    ],
+    "settings": [
+      "path"
+    ],
+    "manifest": "modules/trojan-ws.yaml",
+    "config": "config/modules/trojan-ws.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "trojan-tls",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "xray",
+      "unbound"
+    ],
+    "settings": [
+      "hostname"
+    ],
+    "manifest": "modules/trojan-tls.yaml",
+    "config": "config/modules/trojan-tls.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "tuic",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "tuic"
+    ],
+    "settings": [
+      "listen",
+      "hostname"
+    ],
+    "manifest": "modules/tuic.yaml",
+    "config": "config/modules/tuic.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "openvpn",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "openvpn"
+    ],
+    "settings": [
+      "listen"
+    ],
+    "manifest": "modules/openvpn.yaml",
+    "config": "config/modules/openvpn.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "sstp",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "softether"
+    ],
+    "settings": [
+      "listen",
+      "hostname"
+    ],
+    "manifest": "modules/sstp.yaml",
+    "config": "config/modules/sstp.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "softether",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "softether"
+    ],
+    "settings": [
+      "listen",
+      "hostname"
+    ],
+    "manifest": "modules/softether.yaml",
+    "config": "config/modules/softether.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "openconnect",
+    "phase": "optional",
+    "location": "server",
+    "services": [
+      "ocserv"
+    ],
+    "settings": [
+      "listen",
+      "datagramListen",
+      "hostname"
+    ],
+    "manifest": "modules/openconnect.yaml",
+    "config": "config/modules/openconnect.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "tailscale-exit",
+    "phase": "lab-policy-blocked",
+    "location": "server",
+    "services": [
+      "tailscale"
+    ],
+    "settings": [],
+    "manifest": "modules/tailscale-exit.yaml",
+    "config": "config/modules/tailscale-exit.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "smart-connect",
+    "phase": "R2",
+    "location": "gateway",
+    "services": [
+      "gateway-adapter"
+    ],
+    "settings": [
+      "probeProfile",
+      "mode"
+    ],
+    "manifest": "modules/smart-connect.yaml",
+    "config": "config/modules/smart-connect.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "client-ipv6",
+    "phase": "far-future",
+    "location": "gateway",
+    "services": [
+      "gateway-adapter"
+    ],
+    "settings": [
+      "mode"
+    ],
+    "manifest": "modules/client-ipv6.yaml",
+    "config": "config/modules/client-ipv6.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "web-publish",
+    "phase": "R2",
+    "location": "server",
+    "services": [
+      "caddy",
+      "reverse-tunnel"
+    ],
+    "settings": [
+      "backend"
+    ],
+    "manifest": "modules/web-publish.yaml",
+    "config": "config/modules/web-publish.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "management-api",
+    "phase": "later-management",
+    "location": "control",
+    "services": [
+      "controller"
+    ],
+    "settings": [],
+    "manifest": "modules/management-api.yaml",
+    "config": "config/modules/management-api.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "configurator",
+    "phase": "later-management",
+    "location": "control",
+    "services": [
+      "configurator"
+    ],
+    "settings": [],
+    "manifest": "modules/configurator.yaml",
+    "config": "config/modules/configurator.yaml",
+    "formatVersion": 1
+  },
+  {
+    "id": "web-admin",
+    "phase": "later-management",
+    "location": "control",
+    "services": [
+      "admin"
+    ],
+    "settings": [],
+    "manifest": "modules/web-admin.yaml",
+    "config": "config/modules/web-admin.yaml",
+    "formatVersion": 1
+  }
+]

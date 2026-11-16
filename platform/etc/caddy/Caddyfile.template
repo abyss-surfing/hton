@@ -1,0 +1,38 @@
+{
+    admin unix//run/caddy-admin.sock
+    persist_config off
+    auto_https off
+    servers {
+        protocols h1 h2
+    }
+    log default {
+        output stdout
+        format filter {
+            wrap json
+            fields {
+                request delete
+                error delete
+                headers delete
+                uri delete
+            }
+        }
+        level INFO
+    }
+}
+
+{{SITE_ADDRESSES}} {
+    bind {{BIND_ADDRESS}}
+    # Exact bounded /var/www/index.html is a separate immutable bundle artifact.
+    # Content digest: {{SITE_INDEX_DIGEST}}
+{{TLS}}
+    route {
+{{VPN_ROUTES}}
+        handle {
+            route {
+                rewrite * /site-index.html
+                root * /etc/hton/current
+                file_server
+            }
+        }
+    }
+}

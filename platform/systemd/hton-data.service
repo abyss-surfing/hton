@@ -1,0 +1,35 @@
+[Unit]
+Description=HTON accepted data-plane boot
+Documentation=file:/opt/hton/docs/CLI.md
+Wants=docker.service hton-guardian.service
+After=local-fs.target docker.service hton-guardian.service
+ConditionPathIsExecutable=/opt/hton/libexec/hton-runtime
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Group=root
+WorkingDirectory=/opt/hton
+UMask=0077
+RuntimeDirectory=hton
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+ExecStart=/opt/hton/libexec/hton-runtime boot --state-root /opt/hton/work/runtime --bundle-root /opt/hton/work/bundles --authority-root /opt/hton/work/runtime/authorities
+TimeoutStartSec=180
+NoNewPrivileges=yes
+ProtectSystem=full
+ReadOnlyPaths=/opt/hton
+ReadWritePaths=/opt/hton/work /run/hton
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+StandardOutput=null
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

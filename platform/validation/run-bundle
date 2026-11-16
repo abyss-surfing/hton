@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+self="$(readlink -f -- "$0")"
+root="$(dirname -- "$(dirname -- "$(dirname -- "$self")")")"
+exec "$root/bin/hton" validate "$@"

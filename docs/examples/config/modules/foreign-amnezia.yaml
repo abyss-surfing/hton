@@ -1,0 +1,22 @@
+# Illustrative persisted allocation only; scripts/install generates and stores an
+# available in-range value, then reuses it on repeated installation.
+schemaVersion: 1
+moduleId: foreign-amnezia
+settings:
+  mode: provision
+  container: amnezia-xray
+  # Own REALITY names; the first is the exported primary. Retained qualified
+  # legacy names live separately under compatibility.
+  serverNames:
+    - static.example.com
+  compatibility:
+    legacyServerNames: []
+  hostPorts:
+    tcp: 5714
+    udp: 5714
+  provision:
+    clientName: guest
+  admin:
+    access: generate
+    user: hton-amnezia
+    sshPort: 22

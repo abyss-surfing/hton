@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 1,
+  "resolvedAt": "2026-10-31",
+  "images": {
+    "acme": {
+      "reference": "docker.io/neilpang/acme.sh@sha256:778ac2bcc77397ef631b060de0d5ad1e5460cf1a2d1b83ed5d47918158f1eff4",
+      "sourceTag": "3.1.6",
+      "manifestDigest": "sha256:778ac2bcc77397ef631b060de0d5ad1e5460cf1a2d1b83ed5d47918158f1eff4",
+      "source": "https://github.com/acmesh-official/acme.sh",
+      "platforms": [
+        {
+          "os": "linux",
+          "architecture": "arm64",
+          "variant": null,
+          "manifestDigest": "sha256:8caa68e2ad807ae7ff30b9e21b4576f72f9ab366f51e2221ca86ad2e838ffbd4"
+        },
+        {
+          "os": "linux",
+          "architecture": "amd64",
+          "variant": null,
+          "manifestDigest": "sha256:cd7ffed6dc83db8a29d8daa0dac0f481129c9be760ee038dd2760875aa4733b3"
+        }
+      ],
+      "observedImageVersion": "3.1.6",
+      "inspectedAmd64ConfigDigest": "sha256:2d104f19d44d8a55365fe680ea0b2bda06ace45d7d20a24c28dd1d87e28282af",
+      "inspectedAmd64Path": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    },
+    "alpine": {
+      "reference": "docker.io/library/alpine@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6",
+      "sourceTag": "latest",
+      "manifestDigest": "sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6",
+      "source": "https://github.com/alpinelinux/docker-alpine",
+      "platforms": [
+        {
+          "os": "linux",
+          "architecture": "amd64",
+          "variant": null,
+          "manifestDigest": "sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6"
+        }
+      ],
+      "observedImageVersion": null,
+      "inspectedAmd64ConfigDigest": null,
+      "inspectedAmd64Path": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    },
+    "amneziawg": {
+      "reference": "docker.io/amneziavpn/amneziawg-go@sha256:cbafc02b8373a83f428272db6d8001b37bc02e6211cbd8c0cb4e2e3759b12b72",
+      "sourceTag": "3.1.20260828",
+      "manifestDigest": "sha256:cbafc02b8373a83f428272db6d8001b37bc02e6211cbd8c0cb4e2e3759b12b72",
+      "source": "https://github.com/amnezia-vpn/amneziawg-go",
+      "platforms": [
+        {
+          "os": "linux",
+          "architecture": "amd64",
+          "variant": null,
+          "manifestDigest": "sha256:c68009d33df3aef4654db72bf1a7880cfa0a631fe866c50d9ae3dd34ddd7c13a"
+        }
+      ],
+      "observedImageVersion": "3.1.20260828",
+      "inspectedAmd64ConfigDigest": null,
+      "inspectedAmd64Path": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    },
+    "caddy": {
+      "reference": "docker.io/library/caddy@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5",
+      "sourceTag": "2-alpine",
+      "manifestDigest": "sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5",
+      "source": "https://github.com/caddyserver/caddy-docker",
+      "platforms": [
+        {
+          "os": "linux",
+          "architecture": "amd64",
+          "variant": null,
+          "manifestDigest": "sha256:04913b1da43339a40ad1ea87827d70a576ac5aa6cf674c6e24fdca675887533a"
+        },
+        {
+          "os": "linux",
+          "architecture": "arm64",
+          "variant": "v8",
+          "manifestDigest": "sha256:cc447f149425221422153c6cdf33a123b3f458839679f950298f68a690a54a5b"
+        }
+      ],
+      "observedImageVersion": "v2.11.7",
+      "inspectedAmd64ConfigDigest": "sha256:3067cc4e02c091399edbd5d65f85a3ff4d511574aecadb47f280c3761e68852e",
+      "inspectedAmd64Path": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    },
+    "haproxy": {
+      "reference": "docker.io/library/haproxy@sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b",
+      "sourceTag": "3.2-alpine",
+      "manifestDigest": "sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b",
+      "source": "https://github.com/docker-library/haproxy",
+      "platforms": [
+        {
+          "os": "linux",
+          "architecture": "amd64",
+          "variant": null,
+          "manifestDigest": "sha256:3c2931ee7070f321b0bde9cbf5c27227d72b43f5862b9f028516fbeff4644fbf"
+        },
+        {
+          "os": "linux",
+          "architecture": "arm64",
+          "variant": "v8",
+          "manifestDigest": "sha256:ecd84b17eb055f5cc8f30e81acd4a4cb8fda457f9574f5a430d70bcd8eea5d2f"
+        }
+      ],
+      "observedImageVersion": null,
+      "inspectedAmd64ConfigDigest": "sha256:92fa659751a39ced505c3d78f03387c463372b2b9129400e27edeb49abd347d2",
+      "inspectedAmd64Path": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    },
+    "unbound": {
+      "reference": "docker.io/madnuttah/unbound@sha256:d86e1adab0f6bf546d94898b5ca7effc34a09d554f21be5ddfc08112257f2254",
+      "sourceTag": "1.26.1-1",
+      "manifestDigest": "sha256:d86e1adab0f6bf546d94898b5ca7effc34a09d554f21be5ddfc08112257f2254",
+      "source": "https://github.com/madnuttah/unbound-docker",
+      "platforms": [
+        {
+          "os": "linux",
+          "architecture": "amd64",
+          "variant": null,
+          "manifestDigest": "sha256:27d67ba8a992f5cf14cc1398a23e31bb2d9f4cf03f8913aa26c49d1f66dc3e56"
+        },
+        {
+          "os": "linux",
+          "architecture": "arm64",
+          "variant": null,
+          "manifestDigest": "sha256:4d059882a39e3c213843c3014d46f7ecb7371bb12dad8ad62f836845b0c7ec7b"
+        }
+      ],
+      "observedImageVersion": "1.26.1-1",
+      "inspectedAmd64ConfigDigest": "sha256:4e9f60209e1fe3242676f55d7a8be5636a03ddc3200531b0bf5872cbac3e0edb",
+      "inspectedAmd64Path": "/usr/local/unbound/unbound.d/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "sourceRevision": "f9f1fa3498516b18b05c1e35e5d2fc7f10ef499e"
+    },
+    "mtg": {
+      "reference": "ghcr.io/9seconds/mtg@sha256:9553495b5216cbe6b238e88ce8a3d43ef582e4dc45fcdd7a14d54497500f5d4f",
+      "sourceTag": "2",
+      "manifestDigest": "sha256:9553495b5216cbe6b238e88ce8a3d43ef582e4dc45fcdd7a14d54497500f5d4f",
+      "source": "https://github.com/9seconds/mtg",
+      "platforms": [
+        {
+          "os": "linux",
+          "architecture": "amd64",
+          "variant": null,
+          "manifestDigest": "sha256:15028cdbe0b8561d319ebf63b5827f85c8dd2e48d3eba7e7e7df161db69d99e9"
+        },
+        {
+          "os": "linux",
+          "architecture": "arm64",
+          "variant": null,
+          "manifestDigest": "sha256:0ef9b01e244c831c33ad51d681bca90cc0e87d09a7d0a8cd9dc8e85d20c3df99"
+        }
+      ],
+      "observedImageVersion": "2.3.0",
+      "inspectedAmd64ConfigDigest": "sha256:f0f53fb6546420100da7596301ec64897e3df95453e93ed90e53a96fcf66cb88",
+      "inspectedAmd64Path": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    },
+    "hysteria": {
+      "reference": "docker.io/tobyxdd/hysteria@sha256:92b06917b2abb940e90ea6dc9215c1b1ceea69fa7edc1374daf3cde36e422740",
+      "sourceTag": "v2",
+      "manifestDigest": "sha256:92b06917b2abb940e90ea6dc9215c1b1ceea69fa7edc1374daf3cde36e422740",
+      "source": "https://github.com/apernet/hysteria",
+      "platforms": [
+        {
+          "os": "linux",
+          "architecture": "amd64",
+          "variant": null,
+          "manifestDigest": "sha256:5ed85e7f01de4ea6b8ce66ed6e69527e59c29784138f3f9d933d81024fc5c69f"
+        },
+        {
+          "os": "linux",
+          "architecture": "arm64",
+          "variant": null,
+          "manifestDigest": "sha256:6722e2a6c46d2b6e041af86b2ac8ceaf57c672ca55738a37bea1af6e56cfb364"
+        }
+      ],
+      "observedImageVersion": "v2.13.0",
+      "inspectedAmd64ConfigDigest": "sha256:9d46ffb9409a7ec374c44e2eb88bf5ed83c2c7a886b73e31c9f626f3bda9df28",
+      "inspectedAmd64Path": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    },
+    "xray": {
+      "reference": "ghcr.io/xtls/xray-core@sha256:45338c4df61fda061c47ce62aafda6c5d7d59cbdefc33f2e335d8b0c748b748a",
+      "sourceTag": "26.9.9",
+      "manifestDigest": "sha256:45338c4df61fda061c47ce62aafda6c5d7d59cbdefc33f2e335d8b0c748b748a",
+      "source": "https://github.com/XTLS/Xray-core",
+      "platforms": [
+        {
+          "os": "linux",
+          "architecture": "amd64",
+          "variant": null,
+          "manifestDigest": "sha256:9a17fb7fcda36f80d041fc1f12f1d661d3f7c502572b2a6f2e4432534789a20b"
+        },
+        {
+          "os": "linux",
+          "architecture": "arm64",
+          "variant": null,
+          "manifestDigest": "sha256:2924913941c200d4e3b9636179f6777ed857c9a3a0d761c01eec8f90a25106d2"
+        }
+      ],
+      "observedImageVersion": null,
+      "inspectedAmd64ConfigDigest": "sha256:454df9a873406ef0b2efabaae6e432296583d7a7bcfcf1f5347afd23cea4c895",
+      "inspectedAmd64Path": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    }
+  },
+  "qualification": "native validators and clients not run; final U0/F0 remain deferred"
+}
